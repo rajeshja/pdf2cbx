@@ -62,7 +62,7 @@ def put_panels(project_id: str, page_num: int, panels: list[Panel]):
 
 
 @router.post("/{project_id}/pages/{page_num}/detect", status_code=202)
-def detect_panels(project_id: str, page_num: int, body: DetectRequest):
+async def detect_panels(project_id: str, page_num: int, body: DetectRequest):
     try:
         meta = pm.get_project(project_id)
         pdir = pm.project_path(project_id)
