@@ -182,12 +182,16 @@ function renderPanels(){
 
   byId('canvasWrap').querySelectorAll('.overlay').forEach(n=>n.remove());
   const img = byId('pageImg'); if(!img.naturalWidth) return;
-  const scaleX = img.clientWidth / img.naturalWidth;
-  const scaleY = img.clientHeight / img.naturalHeight;
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imageLeft = imgRect.left - wrapRect.left;
+  const imageTop = imgRect.top - wrapRect.top;
+  const scaleX = imgRect.width / img.naturalWidth;
+  const scaleY = imgRect.height / img.naturalHeight;
   for(const p of state.panels){
     const d = document.createElement('div');
     d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${p.id===selectedId?'selected':''}`;
-    d.style.left = `${p.x * scaleX}px`; d.style.top = `${p.y * scaleY}px`;
+    d.style.left = `${imageLeft + (p.x * scaleX)}px`; d.style.top = `${imageTop + (p.y * scaleY)}px`;
     d.style.width = `${p.width * scaleX}px`; d.style.height = `${p.height * scaleY}px`;
     const badge = document.createElement('span');
     badge.className = 'panel-badge';
@@ -361,14 +365,22 @@ byId('canvasWrap').addEventListener('pointerup', async (e)=>{
   if(state.mode !== 'draw' || !state.drawStart) return;
   const end = getCanvasPoint(e); const start = state.drawStart; state.drawStart = null;
   const img = byId('pageImg'); if(!img.naturalWidth) return;
-  const scaleX = img.naturalWidth / img.clientWidth, scaleY = img.naturalHeight / img.clientHeight;
-  const w = Math.abs(end.x-start.x), h = Math.abs(end.y-start.y);
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imageLeft = imgRect.left - wrapRect.left;
+  const imageTop = imgRect.top - wrapRect.top;
+  const scaleX = img.naturalWidth / imgRect.width, scaleY = img.naturalHeight / imgRect.height;
+  const startX = Math.max(0, Math.min(imgRect.width, start.x - imageLeft));
+  const startY = Math.max(0, Math.min(imgRect.height, start.y - imageTop));
+  const endX = Math.max(0, Math.min(imgRect.width, end.x - imageLeft));
+  const endY = Math.max(0, Math.min(imgRect.height, end.y - imageTop));
+  const w = Math.abs(endX-startX), h = Math.abs(endY-startY);
   byId('canvasWrap').querySelectorAll('.draw-preview').forEach(n=>n.remove());
   if(w < 20 || h < 20) return;
   pushUndo();
   const panel = {
     id: panelId(), order: state.panels.filter(p=>p.include).length+1,
-    x: Math.round(Math.min(start.x,end.x)*scaleX), y: Math.round(Math.min(start.y,end.y)*scaleY),
+    x: Math.round(Math.min(startX,endX)*scaleX), y: Math.round(Math.min(startY,endY)*scaleY),
     width: Math.round(w*scaleX), height: Math.round(h*scaleY),
     type:'text', include:true, confidence:1.0, label:`Panel ${state.panels.length+1}`
   };
