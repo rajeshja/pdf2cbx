@@ -29,6 +29,7 @@
     #pageImg{max-width:100%;max-height:100%;display:block;transform-origin:center center}
     .overlay{position:absolute;border:2px solid var(--primary);background:rgba(37,99,235,.08);font-size:12px;border-radius:6px;cursor:move}
     .panel-badge{position:absolute;top:4px;left:4px;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#0F172A;color:#fff;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+    .lock-icon{position:absolute;top:4px;right:4px;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:rgba(15,23,42,.92);color:#fff;font-size:12px;line-height:1}
     .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
     .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
     .overlay.selected{border-width:3px;box-shadow:0 0 0 2px rgba(255,255,255,.35) inset}
@@ -192,10 +193,60 @@ function showView(view){
 
 function renderPanels(){
   const selectedId = state.selectedPanelId;
-  byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">${i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'}</div>`).join('') || '<div class="small">No panels yet.</div>';
-  byId('readingOrder').innerHTML = state.panels.filter(p=>p.include).sort((a,b)=>a.order-b.order).map(p=>`<div class="project-card" style="padding:.4rem">${p.order} · ${p.label || p.type}</div>`).join('') || '<div class="small">No included panels.</div>';
+  byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
+        <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
+        <span style="display:flex;gap:.25rem">
+          <button class="btn" data-up="${p.id}" style="min-height:28px;padding:.15rem .45rem">↑</button>
+          <button class="btn" data-down="${p.id}" style="min-height:28px;padding:.15rem .45rem">↓</button>
+          <button class="btn" data-lock="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.locked ? 'Unlock' : 'Lock'}</button>
+        </span>
+      </div>
+    </div>`).join('') || '<div class="small">No panels yet.</div>';
+  byId('readingOrder').innerHTML = state.panels.filter(p=>p.include).sort((a,b)=>a.order-b.order).map(p=>`<div class="project-card" style="padding:.4rem">${p.order} · ${p.label || p.type} ${p.locked ? '🔒' : ''}</div>`).join('') || '<div class="small">No included panels.</div>';
 
-  byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = () => { state.selectedPanelId = el.dataset.select; renderPanels(); });
+  byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = (e) => {
+    if(e.target.closest('button')) return;
+    state.selectedPanelId = el.dataset.select;
+    renderPanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-up]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.up;
+    const idx = state.panels.findIndex(p => p.id === id);
+    if(idx <= 0) return;
+    pushUndo();
+    [state.panels[idx-1], state.panels[idx]] = [state.panels[idx], state.panels[idx-1]];
+    sortOrders();
+    state.selectedPanelId = id;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-down]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.down;
+    const idx = state.panels.findIndex(p => p.id === id);
+    if(idx < 0 || idx >= state.panels.length-1) return;
+    pushUndo();
+    [state.panels[idx], state.panels[idx+1]] = [state.panels[idx+1], state.panels[idx]];
+    sortOrders();
+    state.selectedPanelId = id;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-lock]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.lock;
+    const panel = state.panels.find(p => p.id === id);
+    if(!panel) return;
+    pushUndo();
+    panel.locked = !panel.locked;
+    renderPanels();
+    await savePanels();
+  });
 
   byId('canvasWrap').querySelectorAll('.overlay').forEach(n=>n.remove());
   const img = byId('pageImg'); if(!img.naturalWidth) return;
@@ -214,12 +265,32 @@ function renderPanels(){
     badge.className = 'panel-badge';
     badge.textContent = p.order > 0 ? p.order : 'x';
     d.appendChild(badge);
+    if(p.locked){
+      const lock = document.createElement('span');
+      lock.className = 'lock-icon';
+      lock.textContent = '🔒';
+      d.appendChild(lock);
+    }
     d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = p.id; renderPanels(); };
 
     d.onpointerdown = (e) => {
       if(state.mode !== 'select') return;
       e.stopPropagation();
       state.selectedPanelId = p.id;
+
+      if(p.locked){
+        if(state.zoom > 100){
+          state.isPanning = true;
+          state.panStartX = e.clientX;
+          state.panStartY = e.clientY;
+          state.panOriginX = state.panX;
+          state.panOriginY = state.panY;
+          updateCanvasCursor();
+        }
+        renderPanels();
+        return;
+      }
+
       const handle = e.target.closest('.resize-handle');
       state.interactionDirty = false;
       state.interactionStartX = e.clientX;
@@ -234,7 +305,7 @@ function renderPanels(){
       renderPanels();
     };
 
-    if(p.id === selectedId && state.mode === 'select'){
+    if(p.id === selectedId && state.mode === 'select' && !p.locked){
       ['nw','ne','sw','se'].forEach((h) => {
         const handle = document.createElement('span');
         handle.className = `resize-handle ${h}`;
@@ -273,8 +344,14 @@ function renderPageStrip(total){
 
 function panelId(){ return `p${state.page}-${String(state.panels.length+1).padStart(3,'0')}`; }
 function sortOrders(){
-  const included = state.panels.filter(p => p.include).sort((a,b)=>a.order-b.order||a.y-b.y||a.x-b.x);
-  included.forEach((p,i)=>p.order=i+1);
+  let order = 1;
+  for(const panel of state.panels){
+    if(panel.include){
+      panel.order = order++;
+    } else {
+      panel.order = 0;
+    }
+  }
 }
 
 async function loadPage(pageNum){
@@ -531,7 +608,7 @@ byId('canvasWrap').addEventListener('pointerup', async (e)=>{
     id: panelId(), order: state.panels.filter(p=>p.include).length+1,
     x: Math.round(Math.min(startX,endX)*scaleX), y: Math.round(Math.min(startY,endY)*scaleY),
     width: Math.round(w*scaleX), height: Math.round(h*scaleY),
-    type:'text', include:true, confidence:1.0, label:`Panel ${state.panels.length+1}`
+    type:'text', include:true, locked:false, confidence:1.0, label:`Panel ${state.panels.length+1}`
   };
   state.panels.push(panel); state.selectedPanelId = panel.id;
   renderPanels(); await savePanels(); setMode('select');
