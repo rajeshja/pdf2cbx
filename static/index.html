@@ -583,9 +583,37 @@ byId('templateBtn').onclick = async () => {
 
 byId('exportBtn').onclick = async () => {
   const p = state.selectedProject; if(!p) return;
-  const res = await api(`/api/projects/${p.id}/export`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jpeg_quality:85,page_from:1,page_to:p.page_count})});
-  const task = await res.json();
-  alert(`Export started: ${task.task_id}. Poll /api/tasks/${task.task_id}`);
+  try{
+    setStatus('Starting export…');
+    const res = await api(`/api/projects/${p.id}/export`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jpeg_quality:85,page_from:1,page_to:p.page_count})});
+    const task = await res.json();
+    const taskId = task.task_id;
+    if(!taskId) throw new Error('Missing export task id');
+
+    const pollStart = Date.now();
+    const timeoutMs = 120000;
+    while(true){
+      await new Promise((resolve)=>setTimeout(resolve, 750));
+      const taskRes = await api(`/api/tasks/${taskId}`);
+      const status = await taskRes.json();
+      if(status.status === 'complete'){
+        setStatus('Export complete. Downloading…');
+        window.location.href = baseUrl(`/api/projects/${p.id}/export/download`);
+        await refreshProjects();
+        return;
+      }
+      if(status.status === 'error'){
+        throw new Error(status.error || 'Export failed');
+      }
+      if(Date.now() - pollStart > timeoutMs){
+        throw new Error('Export timed out. Please try again.');
+      }
+      setStatus(status.progress_label || 'Export running…');
+    }
+  } catch(err){
+    setStatus('Export failed');
+    alert(`Export failed: ${err.message}`);
+  }
 };
 
 byId('selectBtn').onclick = ()=>setMode('select');
