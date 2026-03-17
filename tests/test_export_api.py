@@ -24,7 +24,7 @@ def test_export_endpoint_starts_task(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(export_router.pm, "project_path", lambda pid: project_dir)
     monkeypatch.setattr(export_router.pm, "write_project", lambda _meta: None)
 
-    def fake_export(_meta, _pdir, _quality, _page_from, _page_to, _task):
+    def fake_export(_meta, _pdir, _quality, _page_from, _page_to, _task, **_kwargs):
         return {"output_filename": "Book.cbz", "panel_count": 1, "file_size_bytes": 123}
 
     monkeypatch.setattr(export_router.exporter, "export", fake_export)
