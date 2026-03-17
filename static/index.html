@@ -21,6 +21,8 @@
     .grid{display:grid;gap:.75rem}
     .project-card{border:1px solid var(--border);border-radius:.75rem;padding:.75rem;background:#fff}
     .project-card.selected{border-color:var(--primary);background:var(--primary-light)}
+    .project-card.primary-selected{box-shadow:inset 0 0 0 2px var(--primary)}
+    .project-card.multi-selected{box-shadow:inset 0 0 0 2px #F59E0B}
     .progress{height:10px;background:#e5e7eb;border-radius:99px;overflow:hidden}
     .progress>span{display:block;height:100%;background:var(--primary)}
     .editor{display:grid;grid-template-columns:260px 1fr 220px;gap:.75rem;height:calc(100vh - 180px)}
@@ -33,6 +35,8 @@
     .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
     .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
     .overlay.selected{border-width:3px;box-shadow:0 0 0 2px rgba(255,255,255,.35) inset}
+    .overlay.multi-selected{border-color:#F59E0B;background:rgba(245,158,11,.12);box-shadow:0 0 0 2px rgba(245,158,11,.45),0 0 0 2px rgba(255,255,255,.3) inset}
+    .overlay.primary-selected{border-color:var(--primary);background:rgba(37,99,235,.16);box-shadow:0 0 0 3px rgba(37,99,235,.55),0 0 0 2px rgba(255,255,255,.35) inset}
     .overlay.draw-preview{pointer-events:none;border-style:dashed}
     .resize-handle{position:absolute;width:14px;height:14px;background:#fff;border:2px solid var(--primary);border-radius:50%;z-index:2}
     .resize-handle.nw{left:-8px;top:-8px;cursor:nwse-resize}
@@ -103,6 +107,7 @@
             <input id="zoomRange" type="range" min="50" max="200" value="100"/>
             <p class="small" style="margin:0">Mouse wheel over page also zooms.</p>
             <p class="small" style="margin:0">Tip: hold Ctrl/Cmd while clicking panels to multi-select, then combine.</p>
+            <p class="small" id="selectionInfo" style="margin:0;font-weight:600">No panels selected.</p>
           </div>
         </aside>
       </div>
@@ -186,6 +191,20 @@ function getSelectedPanels(){
 }
 
 
+function updateSelectionInfo(){
+  const info = byId('selectionInfo');
+  if(!info) return;
+  const count = getSelectedPanels().length;
+  if(count === 0){
+    info.textContent = 'No panels selected.';
+  } else if(count === 1){
+    info.textContent = '1 panel selected.';
+  } else {
+    info.textContent = `${count} panels selected.`;
+  }
+}
+
+
 function updateToolButtonState(){
   const btn = byId('deleteBtn');
   const splitHBtn = byId('splitHBtn');
@@ -193,6 +212,7 @@ function updateToolButtonState(){
   const combineBtn = byId('combineBtn');
   if(!btn || !splitHBtn || !splitVBtn || !combineBtn) return;
   const selectedCount = getSelectedPanels().length;
+  updateSelectionInfo();
   const hasSelection = selectedCount > 0;
   const hasSingleSelection = selectedCount === 1;
   const hasMultiSelection = selectedCount >= 2;
@@ -264,7 +284,11 @@ function showView(view){
 function renderPanels(){
   const selectedIds = new Set(state.selectedPanelIds);
   updateToolButtonState();
-  byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${selectedIds.has(p.id)?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
+  byId('panelList').innerHTML = state.panels.map((p,i)=>{
+    const isSelected = selectedIds.has(p.id);
+    const isPrimary = state.selectedPanelId === p.id;
+    const cardClass = `project-card ${isSelected ? 'selected multi-selected' : ''} ${isPrimary ? 'primary-selected' : ''}`.trim();
+    return `<div class="${cardClass}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
         <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
         <span style="display:flex;gap:.25rem">
@@ -274,7 +298,8 @@ function renderPanels(){
           <button class="btn" data-include="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.include ? 'Exclude' : 'Include'}</button>
         </span>
       </div>
-    </div>`).join('') || '<div class="small">No panels yet.</div>';
+    </div>`;
+  }).join('') || '<div class="small">No panels yet.</div>';
 
   byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = (e) => {
     if(e.target.closest('button')) return;
@@ -341,7 +366,9 @@ function renderPanels(){
   const scaleY = imgRect.height / img.naturalHeight;
   for(const p of state.panels){
     const d = document.createElement('div');
-    d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${selectedIds.has(p.id)?'selected':''}`;
+    const isSelected = selectedIds.has(p.id);
+    const isPrimary = state.selectedPanelId === p.id;
+    d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${isSelected ? 'selected multi-selected' : ''} ${isPrimary ? 'primary-selected' : ''}`;
     d.style.left = `${imageLeft + (p.x * scaleX)}px`; d.style.top = `${imageTop + (p.y * scaleY)}px`;
     d.style.width = `${p.width * scaleX}px`; d.style.height = `${p.height * scaleY}px`;
     const badge = document.createElement('span');
