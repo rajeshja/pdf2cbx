@@ -20,6 +20,18 @@ def _build_two_column_page(path: Path) -> None:
     img.save(path)
 
 
+def _build_top_block_page(path: Path) -> None:
+    img = Image.new("L", (1000, 1400), color=255)
+    draw = ImageDraw.Draw(img)
+
+    # Large top paragraph-like block that should not be auto-excluded
+    draw.rectangle((80, 40, 450, 420), fill=30)
+    # lower block
+    draw.rectangle((80, 520, 450, 900), fill=30)
+
+    img.save(path)
+
+
 def test_detect_splits_two_column_layout(tmp_path: Path):
     image_path = tmp_path / "two-column.png"
     _build_two_column_page(image_path)
@@ -35,3 +47,19 @@ def test_detect_splits_two_column_layout(tmp_path: Path):
 
     assert left_column and right_column
     assert all(panel.width < 500 for panel in text_panels)
+
+
+def test_top_large_segment_not_excluded_and_is_padded(tmp_path: Path):
+    image_path = tmp_path / "top-block.png"
+    _build_top_block_page(image_path)
+
+    detector = LayoutDetector()
+    page = detector.detect(page_num=1, image_path=image_path)
+
+    top_panel = min(page.panels, key=lambda p: p.y)
+    assert top_panel.include is True
+    assert top_panel.type == "text"
+
+    # detector should pad beyond the raw rectangle bounds
+    assert top_panel.y <= 35
+    assert top_panel.height >= 390

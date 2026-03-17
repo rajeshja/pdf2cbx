@@ -62,6 +62,8 @@ class LayoutDetector:
             row_threshold_floor = 0.006
             row_min_size = max(12, height // 140)
             row_merge_gap = max(28, height // 55)
+            box_pad_x = max(6, width // 220)
+            box_pad_y = max(8, height // 220)
 
             col_dark = []
             for x in range(width):
@@ -87,7 +89,7 @@ class LayoutDetector:
                 confidence_threshold,
             )
             logger.debug(
-                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s",
+                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s box_pad=(%s,%s)",
                 page_num,
                 col_threshold,
                 col_min_size,
@@ -95,6 +97,8 @@ class LayoutDetector:
                 row_threshold_floor,
                 row_min_size,
                 row_merge_gap,
+                box_pad_x,
+                box_pad_y,
             )
             logger.debug("layout.detect.columns page=%s columns=%s", page_num, columns)
 
@@ -135,19 +139,27 @@ class LayoutDetector:
                 )
 
                 for y1, y2 in segments:
-                    w = col_width
-                    h = y2 - y1
+                    px1 = max(0, x1 - box_pad_x)
+                    px2 = min(width, x2 + box_pad_x)
+                    py1 = max(0, y1 - box_pad_y)
+                    py2 = min(height, y2 + box_pad_y)
+                    w = px2 - px1
+                    h = py2 - py1
                     if w < 50 or h < 50:
-                        logger.debug("layout.detect.skip_segment page=%s col=%s box=(%s,%s,%s,%s)", page_num, col_idx, x1, y1, w, h)
+                        logger.debug("layout.detect.skip_segment page=%s col=%s box=(%s,%s,%s,%s)", page_num, col_idx, px1, py1, w, h)
                         continue
-                    ptype = "header" if y1 < int(height * 0.08) else "footer" if y2 > int(height * 0.92) else "text"
-                    include = ptype not in {"header", "footer"}
+
+                    is_top_strip = py1 < int(height * 0.08) and h < int(height * 0.06)
+                    is_bottom_strip = py2 > int(height * 0.94) and h < int(height * 0.06)
+                    ptype = "header" if is_top_strip else "footer" if is_bottom_strip else "text"
+                    include = True
+
                     panels.append(
                         Panel(
                             id=f"p{page_num}-{idx:03d}",
-                            order=idx if include else 0,
-                            x=x1,
-                            y=y1,
+                            order=idx,
+                            x=px1,
+                            y=py1,
                             width=w,
                             height=h,
                             type=ptype,
