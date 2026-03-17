@@ -1,8 +1,11 @@
+import logging
 from pathlib import Path
 
 from PIL import Image
 
 from models.panel import PagePanels, Panel
+
+logger = logging.getLogger(__name__)
 
 
 class LayoutDetector:
@@ -40,6 +43,13 @@ class LayoutDetector:
             width, height = gray.size
             pix = gray.load()
 
+            col_threshold = 0.02
+            col_min_size = max(80, width // 12)
+            col_merge_gap = max(16, width // 100)
+            row_threshold = 0.02
+            row_min_size = max(24, height // 80)
+            row_merge_gap = max(16, height // 120)
+
             col_dark = []
             for x in range(width):
                 dark = 0
@@ -48,16 +58,39 @@ class LayoutDetector:
                         dark += 1
                 col_dark.append(dark / height)
 
-            columns = self._find_dense_runs(col_dark, threshold=0.02, min_size=max(80, width // 12))
+            raw_columns = self._find_dense_runs(col_dark, threshold=col_threshold, min_size=col_min_size)
+            columns = self._merge_nearby_runs(raw_columns, gap=col_merge_gap)
             if not columns:
                 columns = [(0, width)]
-            columns = self._merge_nearby_runs(columns, gap=max(16, width // 100))
+
+            logger.info(
+                "layout.detect page=%s size=%sx%s columns=%s raw_columns=%s model=%s conf=%.2f",
+                page_num,
+                width,
+                height,
+                len(columns),
+                len(raw_columns),
+                model,
+                confidence_threshold,
+            )
+            logger.debug(
+                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s",
+                page_num,
+                col_threshold,
+                col_min_size,
+                col_merge_gap,
+                row_threshold,
+                row_min_size,
+                row_merge_gap,
+            )
+            logger.debug("layout.detect.columns page=%s columns=%s", page_num, columns)
 
             panels: list[Panel] = []
             idx = 1
-            for x1, x2 in columns:
+            for col_idx, (x1, x2) in enumerate(columns, start=1):
                 col_width = x2 - x1
                 if col_width < 50:
+                    logger.debug("layout.detect.skip_column page=%s col=%s width=%s", page_num, col_idx, col_width)
                     continue
 
                 row_dark = []
@@ -68,13 +101,23 @@ class LayoutDetector:
                             dark += 1
                     row_dark.append(dark / col_width)
 
-                segments = self._find_dense_runs(row_dark, threshold=0.02, min_size=max(24, height // 80))
-                segments = self._merge_nearby_runs(segments, gap=max(16, height // 120))
+                raw_segments = self._find_dense_runs(row_dark, threshold=row_threshold, min_size=row_min_size)
+                segments = self._merge_nearby_runs(raw_segments, gap=row_merge_gap)
+                logger.debug(
+                    "layout.detect.segments page=%s col=%s x=%s-%s raw=%s merged=%s",
+                    page_num,
+                    col_idx,
+                    x1,
+                    x2,
+                    len(raw_segments),
+                    len(segments),
+                )
 
                 for y1, y2 in segments:
                     w = col_width
                     h = y2 - y1
                     if w < 50 or h < 50:
+                        logger.debug("layout.detect.skip_segment page=%s col=%s box=(%s,%s,%s,%s)", page_num, col_idx, x1, y1, w, h)
                         continue
                     ptype = "header" if y1 < int(height * 0.08) else "footer" if y2 > int(height * 0.92) else "text"
                     include = ptype not in {"header", "footer"}
@@ -101,6 +144,7 @@ class LayoutDetector:
                     panel.label = f"Panel {order}"
 
             if not panels:
+                logger.warning("layout.detect.no_panels page=%s fallback=full_page", page_num)
                 panels = [
                     Panel(
                         id=f"p{page_num}-001",
@@ -116,6 +160,7 @@ class LayoutDetector:
                     )
                 ]
 
+            logger.info("layout.detect.complete page=%s panels=%s", page_num, len(panels))
             return PagePanels(
                 page=page_num,
                 source_width=width,
