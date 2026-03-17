@@ -200,6 +200,7 @@ function renderPanels(){
           <button class="btn" data-up="${p.id}" style="min-height:28px;padding:.15rem .45rem">↑</button>
           <button class="btn" data-down="${p.id}" style="min-height:28px;padding:.15rem .45rem">↓</button>
           <button class="btn" data-lock="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.locked ? 'Unlock' : 'Lock'}</button>
+          <button class="btn" data-include="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.include ? 'Exclude' : 'Include'}</button>
         </span>
       </div>
     </div>`).join('') || '<div class="small">No panels yet.</div>';
@@ -244,6 +245,18 @@ function renderPanels(){
     if(!panel) return;
     pushUndo();
     panel.locked = !panel.locked;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-include]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.include;
+    const panel = state.panels.find(p => p.id === id);
+    if(!panel) return;
+    pushUndo();
+    panel.include = !panel.include;
+    sortOrders();
     renderPanels();
     await savePanels();
   });
