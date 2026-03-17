@@ -37,6 +37,19 @@ class LayoutDetector:
                 merged.append((start, end))
         return merged
 
+    @staticmethod
+    def _smooth_values(values: list[float], radius: int = 2) -> list[float]:
+        if not values:
+            return []
+        smoothed: list[float] = []
+        n = len(values)
+        for idx in range(n):
+            start = max(0, idx - radius)
+            end = min(n, idx + radius + 1)
+            window = values[start:end]
+            smoothed.append(sum(window) / len(window))
+        return smoothed
+
     def detect(self, page_num: int, image_path: Path, confidence_threshold: float = 0.5, model: str = "opencv") -> PagePanels:
         with Image.open(image_path) as img:
             gray = img.convert("L")
@@ -46,9 +59,9 @@ class LayoutDetector:
             col_threshold = 0.02
             col_min_size = max(80, width // 12)
             col_merge_gap = max(16, width // 100)
-            row_threshold = 0.02
-            row_min_size = max(24, height // 80)
-            row_merge_gap = max(16, height // 120)
+            row_threshold_floor = 0.006
+            row_min_size = max(12, height // 140)
+            row_merge_gap = max(28, height // 55)
 
             col_dark = []
             for x in range(width):
@@ -79,7 +92,7 @@ class LayoutDetector:
                 col_threshold,
                 col_min_size,
                 col_merge_gap,
-                row_threshold,
+                row_threshold_floor,
                 row_min_size,
                 row_merge_gap,
             )
@@ -101,14 +114,22 @@ class LayoutDetector:
                             dark += 1
                     row_dark.append(dark / col_width)
 
-                raw_segments = self._find_dense_runs(row_dark, threshold=row_threshold, min_size=row_min_size)
+                row_dark = self._smooth_values(row_dark, radius=2)
+                nonzero_rows = [value for value in row_dark if value > 0]
+                adaptive_row_threshold = row_threshold_floor
+                if nonzero_rows:
+                    avg_density = sum(nonzero_rows) / len(nonzero_rows)
+                    adaptive_row_threshold = max(row_threshold_floor, min(0.02, avg_density * 0.45))
+
+                raw_segments = self._find_dense_runs(row_dark, threshold=adaptive_row_threshold, min_size=row_min_size)
                 segments = self._merge_nearby_runs(raw_segments, gap=row_merge_gap)
                 logger.debug(
-                    "layout.detect.segments page=%s col=%s x=%s-%s raw=%s merged=%s",
+                    "layout.detect.segments page=%s col=%s x=%s-%s threshold=%.4f raw=%s merged=%s",
                     page_num,
                     col_idx,
                     x1,
                     x2,
+                    adaptive_row_threshold,
                     len(raw_segments),
                     len(segments),
                 )
