@@ -24,7 +24,17 @@ async def export_project(project_id: str, body: ExportRequest):
         page_to = body.page_to or meta.page_count
 
         def _export(task):
-            result = exporter.export(meta, pdir, body.jpeg_quality, body.page_from, page_to, task)
+            result = exporter.export(
+                meta,
+                pdir,
+                body.jpeg_quality,
+                body.page_from,
+                page_to,
+                task,
+                archive_format=body.archive_format,
+                include_page_images=body.include_page_images,
+                include_panel_images=body.include_panel_images,
+            )
             meta.exported_at = datetime.now(timezone.utc)
             meta.export_filename = result["output_filename"]
             pm.write_project(meta)

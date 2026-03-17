@@ -272,14 +272,17 @@ Apply a saved template to a range of pages.
 
 ### `POST /api/projects/{project_id}/export`
 
-Start a CBZ export job.
+Start an export job that can produce CBZ or CBX archives with page images and panel coordinate metadata.
 
 **Request body**
 ```json
 {
   "jpeg_quality": 85,
   "page_from": 1,
-  "page_to": 312
+  "page_to": 312,
+  "archive_format": "cbx",
+  "include_page_images": true,
+  "include_panel_images": false
 }
 ```
 
@@ -288,6 +291,9 @@ Start a CBZ export job.
 | `jpeg_quality` | integer | 85 | JPEG compression quality (1–100) |
 | `page_from` | integer | 1 | First page to include (1-based) |
 | `page_to` | integer | last page | Last page to include (inclusive) |
+| `archive_format` | string | `"cbz"` | Output archive extension: `"cbz"` or `"cbx"` |
+| `include_page_images` | boolean | `true` | Include full rendered page images in the archive |
+| `include_panel_images` | boolean | `false` | Include cropped panel JPEGs in addition to full pages |
 
 **Response `202`**
 ```json
@@ -298,12 +304,12 @@ Start a CBZ export job.
 
 ### `GET /api/projects/{project_id}/export/download`
 
-Download the most recently exported CBZ file.
+Download the most recently exported archive file (CBZ or CBX).
 
 **Response `200`**
 - Content-Type: `application/zip`
 - Content-Disposition: `attachment; filename="The Art of War.cbz"`
-- Body: CBZ binary
+- Body: ZIP-based comic archive binary (CBZ/CBX)
 
 **Errors**
 - `404` — No export has been completed for this project

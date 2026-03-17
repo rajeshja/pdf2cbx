@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,3 +24,6 @@ class ExportRequest(BaseModel):
     jpeg_quality: int = 85
     page_from: int = 1
     page_to: Optional[int] = None
+    archive_format: Literal["cbz", "cbx"] = "cbz"
+    include_page_images: bool = True
+    include_panel_images: bool = False
