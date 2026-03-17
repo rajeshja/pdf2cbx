@@ -15,7 +15,7 @@ exporter = CBZExporter()
 
 
 @router.post("/{project_id}/export", status_code=202)
-def export_project(project_id: str, body: ExportRequest):
+async def export_project(project_id: str, body: ExportRequest):
     try:
         meta = pm.get_project(project_id)
         pdir = pm.project_path(project_id)
