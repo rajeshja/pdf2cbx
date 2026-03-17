@@ -1,38 +1,250 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PDF2CBZ</title>
-  <style>body{font-family:Arial,sans-serif;max-width:800px;margin:2rem auto;padding:1rem}button,input{font-size:1rem}</style>
+  <style>
+    :root{--primary:#2563EB;--primary-light:#DBEAFE;--excluded:#94A3B8;--figure:#7C3AED;--destructive:#DC2626;--surface:#F8FAFC;--border:#E2E8F0;--text-primary:#0F172A;--text-secondary:#64748B}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text-primary);background:#fff}
+    button,input,select{min-height:44px;font:inherit}
+    .app{min-height:100vh;display:flex;flex-direction:column}
+    .top{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap}
+    .title{font-size:18px;font-weight:600}
+    .small{font-size:12px;color:var(--text-secondary)}
+    .btn{border:1px solid var(--border);background:#fff;padding:.5rem .8rem;border-radius:.5rem;cursor:pointer}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+    .btn.destructive{background:var(--destructive);border-color:var(--destructive);color:#fff}
+    .stack{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    .container{padding:1rem;max-width:1200px;width:100%;margin:0 auto}
+    .grid{display:grid;gap:.75rem}
+    .project-card{border:1px solid var(--border);border-radius:.75rem;padding:.75rem;background:#fff}
+    .progress{height:10px;background:#e5e7eb;border-radius:99px;overflow:hidden}
+    .progress>span{display:block;height:100%;background:var(--primary)}
+    .editor{display:grid;grid-template-columns:250px 1fr 250px;gap:.75rem;height:calc(100vh - 180px)}
+    .pane{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:.6rem;overflow:auto}
+    .canvasWrap{position:relative;background:#111;border-radius:.5rem;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    #pageImg{max-width:100%;max-height:100%;display:block}
+    .overlay{position:absolute;border:2px solid var(--primary);background:rgba(37,99,235,.08);color:#fff;font-size:12px;padding:2px 6px;border-radius:6px}
+    .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
+    .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
+    .toolbar{margin-top:.5rem;display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+    .page-strip{margin-top:.5rem;border:1px solid var(--border);border-radius:.75rem;padding:.5rem;display:flex;gap:.5rem;overflow:auto;background:var(--surface)}
+    .thumb{min-width:70px;height:92px;border:1px solid var(--border);background:#fff;border-radius:.4rem;display:grid;place-items:center;font-size:12px;color:var(--text-secondary)}
+    .hidden{display:none}
+    @media (max-width:1000px){.editor{grid-template-columns:1fr;height:auto}.pane{min-height:140px}.canvasWrap{min-height:420px}}
+  </style>
 </head>
 <body>
-  <h1>PDF2CBZ</h1>
-  <p>Upload scanned PDFs and export panelized CBZ files.</p>
-  <form id="uploadForm">
-    <input id="pdf" type="file" accept="application/pdf" required />
-    <input id="title" placeholder="Optional title" />
-    <button type="submit">Create Project</button>
-  </form>
-  <h2>Projects</h2>
-  <ul id="projects"></ul>
+<div class="app">
+  <header class="top">
+    <div class="title">PDF2CBZ</div>
+    <div class="stack">
+      <label class="small">API base</label>
+      <input id="apiBase" placeholder="http://localhost:8000" style="min-width:220px;padding:0 .6rem;border:1px solid var(--border);border-radius:.5rem"/>
+      <button class="btn" id="saveApiBase">Save</button>
+      <button class="btn primary" id="newBtn">+ Import PDF</button>
+      <button class="btn" id="homeBtn">Home</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="homeView">
+      <div class="stack" style="justify-content:space-between">
+        <h2 style="margin:.3rem 0">Projects</h2>
+        <span class="small" id="status">Ready</span>
+      </div>
+
+      <form id="uploadForm" class="grid" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-bottom:1rem">
+        <label class="small">PDF file<input id="pdf" type="file" accept="application/pdf" required style="width:100%;padding:.4rem;border:1px solid var(--border);border-radius:.5rem" /></label>
+        <label class="small">Title (optional)<input id="title" placeholder="Book title" style="width:100%;padding:0 .6rem;border:1px solid var(--border);border-radius:.5rem" /></label>
+        <button type="submit" class="btn primary">Import PDF</button>
+      </form>
+
+      <div id="projectList" class="grid"></div>
+    </section>
+
+    <section id="editorView" class="hidden">
+      <div class="top" style="padding:.5rem;border:1px solid var(--border);border-radius:.75rem;margin-bottom:.5rem">
+        <div class="stack"><button class="btn" id="backBtn">← Back</button><strong id="editorTitle">Project</strong><span class="small" id="pageIndicator">Page 1 / 1</span></div>
+        <div class="stack"><button class="btn" id="detectBtn">Detect</button><button class="btn" id="templateBtn">Template</button><button class="btn primary" id="exportBtn">Export</button></div>
+      </div>
+
+      <div class="editor">
+        <aside class="pane"><h3 style="margin:.2rem 0">Panels</h3><div id="panelList"></div><button class="btn" style="margin-top:.5rem;width:100%">+ Add</button></aside>
+        <section>
+          <div class="canvasWrap" id="canvasWrap"><img id="pageImg" alt="Page" /></div>
+          <div class="toolbar">
+            <div class="stack"><button class="btn">Select</button><button class="btn">Draw</button><button class="btn">Split H</button><button class="btn">Split V</button></div>
+            <div class="stack"><button class="btn">Undo</button><button class="btn">Redo</button><span class="small">Zoom</span><input type="range" min="50" max="200" value="100"/></div>
+          </div>
+          <div class="page-strip" id="pageStrip"></div>
+        </section>
+        <aside class="pane"><h3 style="margin:.2rem 0">Reading Order</h3><div id="readingOrder"></div></aside>
+      </div>
+    </section>
+  </main>
+</div>
 <script>
-async function refresh(){
-  const res = await fetch('/api/projects');
-  const data = await res.json();
-  projects.innerHTML = data.map(p=>`<li><b>${p.title}</b> (${p.page_count} pages)</li>`).join('');
-}
-uploadForm.addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const fd = new FormData();
-  fd.append('file', pdf.files[0]);
-  if(title.value) fd.append('title', title.value);
-  const res = await fetch('/api/projects', {method:'POST', body:fd});
-  if(!res.ok){ alert('Upload failed'); return; }
-  await refresh();
-  uploadForm.reset();
-});
-refresh();
+  const byId = (id) => document.getElementById(id);
+  const state = { apiBase: localStorage.getItem('pdf2cbz_api_base') || window.location.origin, projects: [], selectedProject: null, page: 1, panels: [] };
+
+  function baseUrl(path){
+    const base = state.apiBase.replace(/\/$/, '');
+    return `${base}${path}`;
+  }
+
+  async function api(path, options={}){
+    const res = await fetch(baseUrl(path), options);
+    if(!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res;
+  }
+
+  function setStatus(text){ byId('status').textContent = text; }
+
+  function renderProjects(){
+    const root = byId('projectList');
+    root.innerHTML = '';
+    for(const p of state.projects){
+      const detectedPct = p.page_count ? Math.round((p.pages_detected_count / p.page_count) * 100) : 0;
+      const card = document.createElement('div');
+      card.className = 'project-card';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:start">
+          <div>
+            <div style="font-weight:600">📖 ${p.title}</div>
+            <div class="small">${p.page_count} pages · ${(p.source_size_bytes/1048576).toFixed(1)} MB</div>
+            <div class="small">Last page viewed: ${p.last_page_viewed}</div>
+          </div>
+          <div class="stack"><button class="btn" data-open="${p.id}">Resume</button><button class="btn destructive" data-del="${p.id}">Delete</button></div>
+        </div>
+        <div class="progress" style="margin-top:.6rem"><span style="width:${detectedPct}%"></span></div>
+        <div class="small" style="margin-top:.2rem">${detectedPct}% detected</div>`;
+      root.appendChild(card);
+    }
+
+    root.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openEditor(b.dataset.open));
+    root.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if(!confirm('Delete this project?')) return;
+      await api(`/api/projects/${b.dataset.del}`, {method:'DELETE'});
+      await refreshProjects();
+    });
+  }
+
+  async function refreshProjects(){
+    setStatus('Loading projects…');
+    const res = await api('/api/projects');
+    state.projects = await res.json();
+    renderProjects();
+    setStatus(`Loaded ${state.projects.length} project(s)`);
+  }
+
+  function showView(view){
+    byId('homeView').classList.toggle('hidden', view !== 'home');
+    byId('editorView').classList.toggle('hidden', view !== 'editor');
+  }
+
+  function renderPanels(){
+    byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card" style="padding:.4rem">${i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'}</div>`).join('') || '<div class="small">No panels yet.</div>';
+    byId('readingOrder').innerHTML = state.panels.filter(p=>p.include).sort((a,b)=>a.order-b.order).map(p=>`<div class="project-card" style="padding:.4rem">${p.order} · ${p.label || p.type}</div>`).join('') || '<div class="small">No included panels.</div>';
+
+    byId('canvasWrap').querySelectorAll('.overlay').forEach(n=>n.remove());
+    const img = byId('pageImg');
+    if(!img.naturalWidth) return;
+    const scaleX = img.clientWidth / img.naturalWidth;
+    const scaleY = img.clientHeight / img.naturalHeight;
+    for(const p of state.panels){
+      const d = document.createElement('div');
+      d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''}`;
+      d.style.left = `${p.x * scaleX}px`; d.style.top = `${p.y * scaleY}px`;
+      d.style.width = `${p.width * scaleX}px`; d.style.height = `${p.height * scaleY}px`;
+      d.textContent = p.order > 0 ? p.order : 'x';
+      byId('canvasWrap').appendChild(d);
+    }
+  }
+
+  function renderPageStrip(total){
+    const strip = byId('pageStrip');
+    strip.innerHTML = '';
+    const start = Math.max(1, state.page - 4);
+    const end = Math.min(total, start + 9);
+    for(let p=start; p<=end; p++){
+      const d = document.createElement('button');
+      d.className = 'thumb';
+      d.textContent = `Page ${p}`;
+      d.style.borderColor = p === state.page ? 'var(--primary)' : 'var(--border)';
+      d.onclick = ()=>loadPage(p);
+      strip.appendChild(d);
+    }
+  }
+
+  async function loadPage(pageNum){
+    state.page = pageNum;
+    const project = state.selectedProject;
+    byId('pageIndicator').textContent = `Page ${pageNum} / ${project.page_count}`;
+
+    byId('pageImg').src = baseUrl(`/api/projects/${project.id}/pages/${pageNum}/image`);
+    byId('pageImg').onload = () => renderPanels();
+
+    try{
+      const pres = await api(`/api/projects/${project.id}/pages/${pageNum}/panels`);
+      const pdata = await pres.json();
+      state.panels = pdata.panels || [];
+      renderPanels();
+    }catch(err){
+      state.panels = [];
+      renderPanels();
+    }
+    renderPageStrip(project.page_count);
+  }
+
+  async function openEditor(projectId){
+    const p = state.projects.find(x => x.id === projectId);
+    if(!p) return;
+    state.selectedProject = p;
+    byId('editorTitle').textContent = p.title;
+    showView('editor');
+    await loadPage(Math.max(1, p.last_page_viewed || 1));
+  }
+
+  byId('uploadForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      setStatus('Uploading…');
+      const fd = new FormData();
+      fd.append('file', byId('pdf').files[0]);
+      if(byId('title').value.trim()) fd.append('title', byId('title').value.trim());
+      await api('/api/projects', {method:'POST', body:fd});
+      byId('uploadForm').reset();
+      await refreshProjects();
+    }catch(err){ alert(`Upload failed: ${err.message}`); setStatus('Upload failed'); }
+  });
+
+  byId('apiBase').value = state.apiBase;
+  byId('saveApiBase').onclick = async () => {
+    state.apiBase = byId('apiBase').value.trim().replace(/\/$/, '');
+    localStorage.setItem('pdf2cbz_api_base', state.apiBase);
+    await refreshProjects();
+  };
+  byId('newBtn').onclick = ()=>window.scrollTo({top:0,behavior:'smooth'});
+  byId('homeBtn').onclick = ()=>showView('home');
+  byId('backBtn').onclick = ()=>showView('home');
+
+  byId('detectBtn').onclick = async () => {
+    const p = state.selectedProject; if(!p) return;
+    const res = await api(`/api/projects/${p.id}/pages/${state.page}/detect`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confidence_threshold:0.5, model:'opencv'})});
+    const task = await res.json();
+    alert(`Detection started: ${task.task_id}. Reload page in a moment.`);
+  };
+
+  byId('exportBtn').onclick = async () => {
+    const p = state.selectedProject; if(!p) return;
+    const res = await api(`/api/projects/${p.id}/export`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jpeg_quality:85,page_from:1,page_to:p.page_count})});
+    const task = await res.json();
+    alert(`Export started: ${task.task_id}. Poll /api/tasks/${task.task_id}`);
+  };
+
+  refreshProjects().catch(e => setStatus(`Unable to reach API at ${state.apiBase}: ${e.message}`));
 </script>
 </body>
 </html>

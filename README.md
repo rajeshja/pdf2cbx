@@ -44,3 +44,28 @@ python app.py
 ```
 
 For remote access from a tablet, see [Deployment](./08-deployment.md).
+
+## How to Test the Current Implementation
+
+1. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Start the backend API + static UI (single process):
+
+```bash
+python app.py
+```
+
+3. Open `http://localhost:8000` in your browser.
+   - The HTML app now defaults API calls to the same origin, so the upload form works immediately when served by FastAPI.
+   - If you host the HTML separately (for example via `python -m http.server`), set the **API base** field in the header to `http://localhost:8000` and click **Save**.
+
+4. End-to-end smoke flow:
+   - Import a scanned PDF
+   - Click **Resume** on that project
+   - Open a page, trigger **Detect**
+   - Trigger **Export** and then poll `/api/tasks/{task_id}`
+
