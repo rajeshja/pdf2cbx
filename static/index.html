@@ -21,6 +21,8 @@
     .grid{display:grid;gap:.75rem}
     .project-card{border:1px solid var(--border);border-radius:.75rem;padding:.75rem;background:#fff}
     .project-card.selected{border-color:var(--primary);background:var(--primary-light)}
+    .project-card.primary-selected{box-shadow:inset 0 0 0 2px var(--primary)}
+    .project-card.multi-selected{box-shadow:inset 0 0 0 2px #F59E0B}
     .progress{height:10px;background:#e5e7eb;border-radius:99px;overflow:hidden}
     .progress>span{display:block;height:100%;background:var(--primary)}
     .editor{display:grid;grid-template-columns:260px 1fr 220px;gap:.75rem;height:calc(100vh - 180px)}
@@ -33,6 +35,8 @@
     .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
     .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
     .overlay.selected{border-width:3px;box-shadow:0 0 0 2px rgba(255,255,255,.35) inset}
+    .overlay.multi-selected{border-color:#F59E0B;background:rgba(245,158,11,.12);box-shadow:0 0 0 2px rgba(245,158,11,.45),0 0 0 2px rgba(255,255,255,.3) inset}
+    .overlay.primary-selected{border-color:var(--primary);background:rgba(37,99,235,.16);box-shadow:0 0 0 3px rgba(37,99,235,.55),0 0 0 2px rgba(255,255,255,.35) inset}
     .overlay.draw-preview{pointer-events:none;border-style:dashed}
     .resize-handle{position:absolute;width:14px;height:14px;background:#fff;border:2px solid var(--primary);border-radius:50%;z-index:2}
     .resize-handle.nw{left:-8px;top:-8px;cursor:nwse-resize}
@@ -93,14 +97,17 @@
             <button class="btn active" id="selectBtn">Select</button>
             <button class="btn" id="drawBtn">Draw</button>
             <button class="btn" id="addBtn">+ Add Panel</button>
-            <button class="btn destructive" id="deleteBtn" disabled>Delete Selected Panel</button>
+            <button class="btn destructive" id="deleteBtn" disabled>Delete Selected Panel(s)</button>
             <button class="btn" id="splitHBtn">Split Horizontally</button>
             <button class="btn" id="splitVBtn">Split Vertically</button>
+            <button class="btn" id="combineBtn">Combine Selected Panels</button>
             <button class="btn" id="undoBtn">Undo</button>
             <button class="btn" id="redoBtn">Redo</button>
             <label class="small">Zoom</label>
             <input id="zoomRange" type="range" min="50" max="200" value="100"/>
             <p class="small" style="margin:0">Mouse wheel over page also zooms.</p>
+            <p class="small" style="margin:0">Tip: hold Ctrl/Cmd while clicking panels to multi-select, then combine.</p>
+            <p class="small" id="selectionInfo" style="margin:0;font-weight:600">No panels selected.</p>
           </div>
         </aside>
       </div>
@@ -112,7 +119,7 @@ const byId = (id) => document.getElementById(id);
 const state = {
   apiBase: localStorage.getItem('pdf2cbz_api_base') || window.location.origin,
   projects: [], selectedProject: null, page: 1,
-  panels: [], selectedPanelId: null,
+  panels: [], selectedPanelId: null, selectedPanelIds: [],
   mode: 'select',
   zoom: 100,
   panX: 0, panY: 0,
@@ -152,13 +159,78 @@ function pushUndo(){
 }
 
 
-function updateDeleteButtonState(){
+function syncPrimarySelection(){
+  state.selectedPanelId = state.selectedPanelIds[0] || null;
+}
+
+
+function setSelection(ids){
+  const validIds = ids.filter((id)=>state.panels.some((panel)=>panel.id === id));
+  state.selectedPanelIds = [...new Set(validIds)];
+  syncPrimarySelection();
+}
+
+
+function selectPanel(id, additive=false){
+  if(!id) return;
+  if(additive){
+    if(state.selectedPanelIds.includes(id)){
+      setSelection(state.selectedPanelIds.filter((panelId)=>panelId !== id));
+      return;
+    }
+    setSelection([...state.selectedPanelIds, id]);
+    return;
+  }
+  setSelection([id]);
+}
+
+
+function getSelectedPanels(){
+  const selectedSet = new Set(state.selectedPanelIds);
+  return state.panels.filter((panel)=>selectedSet.has(panel.id));
+}
+
+
+function updateSelectionInfo(){
+  const info = byId('selectionInfo');
+  if(!info) return;
+  const count = getSelectedPanels().length;
+  if(count === 0){
+    info.textContent = 'No panels selected.';
+  } else if(count === 1){
+    info.textContent = '1 panel selected.';
+  } else {
+    info.textContent = `${count} panels selected.`;
+  }
+}
+
+
+function updateToolButtonState(){
   const btn = byId('deleteBtn');
-  if(!btn) return;
-  const hasSelection = !!state.selectedPanelId && state.panels.some((p)=>p.id===state.selectedPanelId);
+  const splitHBtn = byId('splitHBtn');
+  const splitVBtn = byId('splitVBtn');
+  const combineBtn = byId('combineBtn');
+  if(!btn || !splitHBtn || !splitVBtn || !combineBtn) return;
+  const selectedCount = getSelectedPanels().length;
+  updateSelectionInfo();
+  const hasSelection = selectedCount > 0;
+  const hasSingleSelection = selectedCount === 1;
+  const hasMultiSelection = selectedCount >= 2;
+
   btn.disabled = !hasSelection;
-  btn.style.opacity = hasSelection ? '1' : '0.5';
-  btn.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+  splitHBtn.disabled = !hasSingleSelection;
+  splitVBtn.disabled = !hasSingleSelection;
+  combineBtn.disabled = !hasMultiSelection;
+
+  [
+    [btn, hasSelection],
+    [splitHBtn, hasSingleSelection],
+    [splitVBtn, hasSingleSelection],
+    [combineBtn, hasMultiSelection],
+  ].forEach(([button, enabled]) => {
+    button.style.opacity = enabled ? '1' : '0.5';
+    button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  });
 }
 
 
@@ -210,9 +282,13 @@ function showView(view){
 }
 
 function renderPanels(){
-  const selectedId = state.selectedPanelId;
-  updateDeleteButtonState();
-  byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
+  const selectedIds = new Set(state.selectedPanelIds);
+  updateToolButtonState();
+  byId('panelList').innerHTML = state.panels.map((p,i)=>{
+    const isSelected = selectedIds.has(p.id);
+    const isPrimary = state.selectedPanelId === p.id;
+    const cardClass = `project-card ${isSelected ? 'selected multi-selected' : ''} ${isPrimary ? 'primary-selected' : ''}`.trim();
+    return `<div class="${cardClass}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
         <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
         <span style="display:flex;gap:.25rem">
@@ -222,11 +298,12 @@ function renderPanels(){
           <button class="btn" data-include="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.include ? 'Exclude' : 'Include'}</button>
         </span>
       </div>
-    </div>`).join('') || '<div class="small">No panels yet.</div>';
+    </div>`;
+  }).join('') || '<div class="small">No panels yet.</div>';
 
   byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = (e) => {
     if(e.target.closest('button')) return;
-    state.selectedPanelId = el.dataset.select;
+    selectPanel(el.dataset.select, e.ctrlKey || e.metaKey);
     renderPanels();
   });
 
@@ -238,7 +315,7 @@ function renderPanels(){
     pushUndo();
     [state.panels[idx-1], state.panels[idx]] = [state.panels[idx], state.panels[idx-1]];
     sortOrders();
-    state.selectedPanelId = id;
+    setSelection([id]);
     renderPanels();
     await savePanels();
   });
@@ -251,7 +328,7 @@ function renderPanels(){
     pushUndo();
     [state.panels[idx], state.panels[idx+1]] = [state.panels[idx+1], state.panels[idx]];
     sortOrders();
-    state.selectedPanelId = id;
+    setSelection([id]);
     renderPanels();
     await savePanels();
   });
@@ -289,7 +366,9 @@ function renderPanels(){
   const scaleY = imgRect.height / img.naturalHeight;
   for(const p of state.panels){
     const d = document.createElement('div');
-    d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${p.id===selectedId?'selected':''}`;
+    const isSelected = selectedIds.has(p.id);
+    const isPrimary = state.selectedPanelId === p.id;
+    d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${isSelected ? 'selected multi-selected' : ''} ${isPrimary ? 'primary-selected' : ''}`;
     d.style.left = `${imageLeft + (p.x * scaleX)}px`; d.style.top = `${imageTop + (p.y * scaleY)}px`;
     d.style.width = `${p.width * scaleX}px`; d.style.height = `${p.height * scaleY}px`;
     const badge = document.createElement('span');
@@ -302,12 +381,17 @@ function renderPanels(){
       lock.textContent = '🔒';
       d.appendChild(lock);
     }
-    d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = p.id; renderPanels(); };
+    d.onclick = (e) => { e.stopPropagation(); };
 
     d.onpointerdown = (e) => {
       if(state.mode !== 'select') return;
       e.stopPropagation();
-      state.selectedPanelId = p.id;
+      const additiveSelection = e.ctrlKey || e.metaKey;
+      selectPanel(p.id, additiveSelection);
+      if(additiveSelection){
+        renderPanels();
+        return;
+      }
 
       if(p.locked){
         if(state.zoom > 100){
@@ -336,7 +420,7 @@ function renderPanels(){
       renderPanels();
     };
 
-    if(p.id === selectedId && state.mode === 'select' && !p.locked){
+    if(state.selectedPanelId === p.id && state.mode === 'select' && !p.locked && state.selectedPanelIds.length === 1){
       ['nw','ne','sw','se'].forEach((h) => {
         const handle = document.createElement('span');
         handle.className = `resize-handle ${h}`;
@@ -401,7 +485,7 @@ async function loadPage(pageNum){
     const pres = await api(`/api/projects/${project.id}/pages/${pageNum}/panels`);
     const pdata = await pres.json();
     state.panels = pdata.panels || [];
-    state.selectedPanelId = state.panels[0]?.id || null;
+    setSelection(state.panels[0]?.id ? [state.panels[0].id] : []);
     const maxSeq = state.panels.reduce((m, panel) => {
       const match = /^p\d+-(\d+)$/.exec(panel.id || '');
       const seq = match ? Number(match[1]) : 0;
@@ -410,7 +494,8 @@ async function loadPage(pageNum){
     state.panelSeq = maxSeq + 1;
     state.undoStack = []; state.redoStack = [];
   } catch {
-    state.panels = []; state.selectedPanelId = null;
+    state.panels = [];
+    setSelection([]);
     state.panelSeq = 1;
   }
   renderPanels();
@@ -507,34 +592,71 @@ byId('selectBtn').onclick = ()=>setMode('select');
 byId('drawBtn').onclick = ()=>setMode('draw');
 byId('addBtn').onclick = ()=>setMode('draw');
 byId('deleteBtn').onclick = async ()=>{
-  const id = state.selectedPanelId;
-  if(!id) return;
-  const idx = state.panels.findIndex((p)=>p.id===id);
-  if(idx < 0) return;
+  const selectedIds = new Set(state.selectedPanelIds);
+  if(!selectedIds.size) return;
+  const firstSelectedIndex = state.panels.findIndex((p)=>selectedIds.has(p.id));
+  if(firstSelectedIndex < 0) return;
   pushUndo();
-  state.panels.splice(idx, 1);
+  state.panels = state.panels.filter((p)=>!selectedIds.has(p.id));
   sortOrders();
-  state.selectedPanelId = state.panels[idx]?.id || state.panels[idx-1]?.id || null;
+  const replacement = state.panels[firstSelectedIndex]?.id || state.panels[firstSelectedIndex-1]?.id;
+  setSelection(replacement ? [replacement] : []);
   renderPanels();
   await savePanels();
 };
 byId('splitHBtn').onclick = async ()=>{
-  const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
+  const id = state.selectedPanelId; if(state.selectedPanelIds.length !== 1 || !id) return alert('Select exactly one panel first.');
   const src = state.panels.find(p=>p.id===id); if(!src) return;
   pushUndo();
   const mid = src.height/2;
   const a = {...src, id:panelId(), height:Math.floor(mid), label:`${src.label || 'Panel'} A`};
   const b = {...src, id:panelId(), y:src.y+Math.floor(mid), height:src.height-Math.floor(mid), label:`${src.label || 'Panel'} B`};
-  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); setSelection([a.id]); renderPanels(); await savePanels();
 };
 byId('splitVBtn').onclick = async ()=>{
-  const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
+  const id = state.selectedPanelId; if(state.selectedPanelIds.length !== 1 || !id) return alert('Select exactly one panel first.');
   const src = state.panels.find(p=>p.id===id); if(!src) return;
   pushUndo();
   const mid = src.width/2;
   const a = {...src, id:panelId(), width:Math.floor(mid), label:`${src.label || 'Panel'} A`};
   const b = {...src, id:panelId(), x:src.x+Math.floor(mid), width:src.width-Math.floor(mid), label:`${src.label || 'Panel'} B`};
-  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); setSelection([a.id]); renderPanels(); await savePanels();
+};
+
+byId('combineBtn').onclick = async ()=>{
+  const selected = getSelectedPanels();
+  if(selected.length < 2) return alert('Select at least two panels to combine.');
+  pushUndo();
+
+  const selectedIds = new Set(selected.map((panel)=>panel.id));
+  const insertionIndex = state.panels.findIndex((panel)=>selectedIds.has(panel.id));
+  const minX = Math.min(...selected.map((panel)=>panel.x));
+  const minY = Math.min(...selected.map((panel)=>panel.y));
+  const maxRight = Math.max(...selected.map((panel)=>panel.x + panel.width));
+  const maxBottom = Math.max(...selected.map((panel)=>panel.y + panel.height));
+  const include = selected.some((panel)=>panel.include);
+  const types = [...new Set(selected.map((panel)=>panel.type || 'text'))];
+  const mergedPanel = {
+    id: panelId(),
+    order: 0,
+    x: minX,
+    y: minY,
+    width: maxRight - minX,
+    height: maxBottom - minY,
+    type: types.length === 1 ? types[0] : 'text',
+    include,
+    locked: false,
+    confidence: 1.0,
+    label: `Combined Panel ${state.panels.length - selected.length + 1}`,
+  };
+
+  const remaining = state.panels.filter((panel)=>!selectedIds.has(panel.id));
+  remaining.splice(Math.max(0, insertionIndex), 0, mergedPanel);
+  state.panels = remaining;
+  sortOrders();
+  setSelection([mergedPanel.id]);
+  renderPanels();
+  await savePanels();
 };
 
 byId('undoBtn').onclick = async ()=>{
@@ -676,7 +798,7 @@ byId('canvasWrap').addEventListener('pointerup', async (e)=>{
     width: Math.round(w*scaleX), height: Math.round(h*scaleY),
     type:'text', include:true, locked:false, confidence:1.0, label:`Panel ${state.panels.length+1}`
   };
-  state.panels.push(panel); state.selectedPanelId = panel.id;
+  state.panels.push(panel); setSelection([panel.id]);
   renderPanels(); await savePanels(); setMode('select');
 });
 
