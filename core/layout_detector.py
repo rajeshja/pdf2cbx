@@ -65,7 +65,8 @@ class LayoutDetector:
             box_pad_x = max(10, width // 120)
             box_pad_y = max(10, height // 160)
             top_extra_left_pad = max(20, width // 30)
-            sort_bucket = max(24, height // 60)
+            row_bucket = max(24, height // 60)
+            col_bucket = max(24, width // 40)
 
             col_dark = []
             for x in range(width):
@@ -91,7 +92,7 @@ class LayoutDetector:
                 confidence_threshold,
             )
             logger.debug(
-                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s box_pad=(%s,%s) top_extra_left=%s sort_bucket=%s",
+                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s box_pad=(%s,%s) top_extra_left=%s row_bucket=%s col_bucket=%s",
                 page_num,
                 col_threshold,
                 col_min_size,
@@ -102,7 +103,8 @@ class LayoutDetector:
                 box_pad_x,
                 box_pad_y,
                 top_extra_left_pad,
-                sort_bucket,
+                row_bucket,
+                col_bucket,
             )
             logger.debug("layout.detect.columns page=%s columns=%s", page_num, columns)
 
@@ -175,7 +177,7 @@ class LayoutDetector:
                     )
                     idx += 1
 
-            panels.sort(key=lambda p: (p.y // sort_bucket, p.x, p.y))
+            panels.sort(key=lambda p: (p.x // col_bucket, p.y // row_bucket, p.y, p.x))
             include_order = 1
             for panel in panels:
                 if panel.include:

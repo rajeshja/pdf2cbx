@@ -96,3 +96,33 @@ def test_ordering_prefers_left_to_right_on_same_row_and_excludes_footer(tmp_path
     footer_like = [p for p in page.panels if p.y > 1250]
     assert footer_like
     assert all(not p.include for p in footer_like)
+
+
+def _build_column_first_order_page(path: Path) -> None:
+    img = Image.new("L", (1000, 1400), color=255)
+    draw = ImageDraw.Draw(img)
+
+    # Left column top and lower blocks
+    draw.rectangle((80, 120, 430, 420), fill=30)
+    draw.rectangle((80, 520, 430, 900), fill=30)
+
+    # Right column starts slightly higher than left top block
+    draw.rectangle((560, 80, 920, 360), fill=30)
+    draw.rectangle((560, 460, 920, 800), fill=30)
+
+    img.save(path)
+
+
+def test_panel_ordering_is_column_first(tmp_path: Path):
+    image_path = tmp_path / "column-first.png"
+    _build_column_first_order_page(image_path)
+
+    detector = LayoutDetector()
+    page = detector.detect(page_num=1, image_path=image_path)
+
+    included = sorted([p for p in page.panels if p.include], key=lambda p: p.order)
+    assert len(included) >= 4
+
+    # First two included panels should come from the left column.
+    assert included[0].x < 500
+    assert included[1].x < 500
