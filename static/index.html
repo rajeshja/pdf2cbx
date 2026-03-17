@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF2CBZ</title>
+  <style>
+    :root{--primary:#2563EB;--primary-light:#DBEAFE;--excluded:#94A3B8;--figure:#7C3AED;--destructive:#DC2626;--surface:#F8FAFC;--border:#E2E8F0;--text-primary:#0F172A;--text-secondary:#64748B}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text-primary);background:#fff}
+    button,input,select{min-height:44px;font:inherit}
+    .app{min-height:100vh;display:flex;flex-direction:column}
+    .top{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap}
+    .title{font-size:18px;font-weight:600}
+    .small{font-size:12px;color:var(--text-secondary)}
+    .btn{border:1px solid var(--border);background:#fff;padding:.5rem .8rem;border-radius:.5rem;cursor:pointer}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+    .btn.destructive{background:var(--destructive);border-color:var(--destructive);color:#fff}
+    .btn.active{outline:2px solid var(--primary-light);border-color:var(--primary)}
+    .stack{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    .container{padding:1rem;max-width:1200px;width:100%;margin:0 auto}
+    .grid{display:grid;gap:.75rem}
+    .project-card{border:1px solid var(--border);border-radius:.75rem;padding:.75rem;background:#fff}
+    .project-card.selected{border-color:var(--primary);background:var(--primary-light)}
+    .progress{height:10px;background:#e5e7eb;border-radius:99px;overflow:hidden}
+    .progress>span{display:block;height:100%;background:var(--primary)}
+    .editor{display:grid;grid-template-columns:260px 1fr 220px;gap:.75rem;height:calc(100vh - 180px)}
+    .pane{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:.6rem;overflow:auto}
+    .canvasWrap{position:relative;background:#111;border-radius:.5rem;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:520px;touch-action:none}
+    #pageImg{max-width:100%;max-height:100%;display:block;transform-origin:center center}
+    .overlay{position:absolute;border:2px solid var(--primary);background:rgba(37,99,235,.08);font-size:12px;border-radius:6px;cursor:move}
+    .panel-badge{position:absolute;top:4px;left:4px;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#0F172A;color:#fff;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+    .lock-icon{position:absolute;top:4px;right:4px;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:rgba(15,23,42,.92);color:#fff;font-size:12px;line-height:1}
+    .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
+    .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
+    .overlay.selected{border-width:3px;box-shadow:0 0 0 2px rgba(255,255,255,.35) inset}
+    .overlay.draw-preview{pointer-events:none;border-style:dashed}
+    .resize-handle{position:absolute;width:14px;height:14px;background:#fff;border:2px solid var(--primary);border-radius:50%;z-index:2}
+    .resize-handle.nw{left:-8px;top:-8px;cursor:nwse-resize}
+    .resize-handle.ne{right:-8px;top:-8px;cursor:nesw-resize}
+    .resize-handle.sw{left:-8px;bottom:-8px;cursor:nesw-resize}
+    .resize-handle.se{right:-8px;bottom:-8px;cursor:nwse-resize}
+    .toolbar{display:flex;flex-direction:column;gap:.5rem}
+    .page-strip{margin-top:.5rem;border:1px solid var(--border);border-radius:.75rem;padding:.5rem;display:flex;gap:.5rem;overflow:auto;background:var(--surface)}
+    .thumb{min-width:70px;height:92px;border:1px solid var(--border);background:#fff;border-radius:.4rem;display:grid;place-items:center;font-size:12px;color:var(--text-secondary)}
+    .hidden{display:none}
+    @media (max-width:1000px){.editor{grid-template-columns:1fr;height:auto}.pane{min-height:140px}.canvasWrap{min-height:420px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="title">PDF2CBZ</div>
+    <div class="stack">
+      <label class="small">API base</label>
+      <input id="apiBase" placeholder="http://localhost:8000" style="min-width:220px;padding:0 .6rem;border:1px solid var(--border);border-radius:.5rem"/>
+      <button class="btn" id="saveApiBase">Save</button>
+      <button class="btn primary" id="newBtn">+ Import PDF</button>
+      <button class="btn" id="homeBtn">Home</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="homeView">
+      <div class="stack" style="justify-content:space-between">
+        <h2 style="margin:.3rem 0">Projects</h2>
+        <span class="small" id="status">Ready</span>
+      </div>
+
+      <form id="uploadForm" class="grid" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-bottom:1rem">
+        <label class="small">PDF file<input id="pdf" type="file" accept="application/pdf" required style="width:100%;padding:.4rem;border:1px solid var(--border);border-radius:.5rem" /></label>
+        <label class="small">Title (optional)<input id="title" placeholder="Book title" style="width:100%;padding:0 .6rem;border:1px solid var(--border);border-radius:.5rem" /></label>
+        <button type="submit" class="btn primary">Import PDF</button>
+      </form>
+
+      <div id="projectList" class="grid"></div>
+    </section>
+
+    <section id="editorView" class="hidden">
+      <div class="top" style="padding:.5rem;border:1px solid var(--border);border-radius:.75rem;margin-bottom:.5rem">
+        <div class="stack"><button class="btn" id="backBtn">← Back</button><strong id="editorTitle">Project</strong><span class="small" id="pageIndicator">Page 1 / 1</span></div>
+        <div class="stack"><button class="btn" id="detectBtn">Detect</button><button class="btn" id="templateBtn">Template</button><button class="btn primary" id="exportBtn">Export</button></div>
+      </div>
+
+      <div class="editor">
+        <aside class="pane"><h3 style="margin:.2rem 0">Panels</h3><div id="panelList"></div></aside>
+        <section>
+          <div class="canvasWrap" id="canvasWrap"><img id="pageImg" alt="Page" /></div>
+          <div class="page-strip" id="pageStrip"></div>
+        </section>
+        <aside class="pane">
+          <h3 style="margin:.2rem 0">Tools</h3>
+          <div class="toolbar">
+            <button class="btn active" id="selectBtn">Select</button>
+            <button class="btn" id="drawBtn">Draw</button>
+            <button class="btn" id="addBtn">+ Add Panel</button>
+            <button class="btn destructive" id="deleteBtn" disabled>Delete Selected Panel</button>
+            <button class="btn" id="splitHBtn">Split Horizontally</button>
+            <button class="btn" id="splitVBtn">Split Vertically</button>
+            <button class="btn" id="undoBtn">Undo</button>
+            <button class="btn" id="redoBtn">Redo</button>
+            <label class="small">Zoom</label>
+            <input id="zoomRange" type="range" min="50" max="200" value="100"/>
+            <p class="small" style="margin:0">Mouse wheel over page also zooms.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+const byId = (id) => document.getElementById(id);
+const state = {
+  apiBase: localStorage.getItem('pdf2cbz_api_base') || window.location.origin,
+  projects: [], selectedProject: null, page: 1,
+  panels: [], selectedPanelId: null,
+  mode: 'select',
+  zoom: 100,
+  panX: 0, panY: 0,
+  isPanning: false,
+  panStartX: 0, panStartY: 0,
+  panOriginX: 0, panOriginY: 0,
+  dragPanelId: null,
+  resizePanelId: null,
+  resizeHandle: null,
+  interactionStartX: 0,
+  interactionStartY: 0,
+  panelStart: null,
+  interactionDirty: false,
+  drawStart: null,
+  panelSeq: 1,
+  undoStack: [], redoStack: []
+};
+
+function baseUrl(path){ return `${state.apiBase.replace(/\/$/, '')}${path}`; }
+async function api(path, options={}){
+  const res = await fetch(baseUrl(path), options);
+  if(!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res;
+}
+function setStatus(text){ byId('status').textContent = text; }
+function setMode(mode){
+  state.mode = mode;
+  ['selectBtn','drawBtn'].forEach(id => byId(id).classList.remove('active'));
+  byId(mode === 'draw' ? 'drawBtn' : 'selectBtn').classList.add('active');
+  updateCanvasCursor();
+}
+
+function pushUndo(){
+  state.undoStack.push(JSON.stringify(state.panels));
+  if(state.undoStack.length > 30) state.undoStack.shift();
+  state.redoStack = [];
+}
+
+
+function updateDeleteButtonState(){
+  const btn = byId('deleteBtn');
+  if(!btn) return;
+  const hasSelection = !!state.selectedPanelId && state.panels.some((p)=>p.id===state.selectedPanelId);
+  btn.disabled = !hasSelection;
+  btn.style.opacity = hasSelection ? '1' : '0.5';
+  btn.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+}
+
+
+async function savePanels(){
+  const project = state.selectedProject;
+  if(!project) return;
+  await api(`/api/projects/${project.id}/pages/${state.page}/panels`, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(state.panels)
+  });
+}
+
+function renderProjects(){
+  const root = byId('projectList'); root.innerHTML = '';
+  for(const p of state.projects){
+    const detectedPct = p.page_count ? Math.round((p.pages_detected_count / p.page_count) * 100) : 0;
+    const card = document.createElement('div'); card.className = 'project-card';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:start">
+        <div>
+          <div style="font-weight:600">📖 ${p.title}</div>
+          <div class="small">${p.page_count} pages · ${(p.source_size_bytes/1048576).toFixed(1)} MB</div>
+          <div class="small">Last page viewed: ${p.last_page_viewed}</div>
+        </div>
+        <div class="stack"><button class="btn" data-open="${p.id}">Resume</button><button class="btn destructive" data-del="${p.id}">Delete</button></div>
+      </div>
+      <div class="progress" style="margin-top:.6rem"><span style="width:${detectedPct}%"></span></div>
+      <div class="small" style="margin-top:.2rem">${detectedPct}% detected</div>`;
+    root.appendChild(card);
+  }
+  root.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openEditor(b.dataset.open));
+  root.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if(!confirm('Delete this project?')) return;
+    await api(`/api/projects/${b.dataset.del}`, {method:'DELETE'});
+    await refreshProjects();
+  });
+}
+
+async function refreshProjects(){
+  setStatus('Loading projects…');
+  const res = await api('/api/projects');
+  state.projects = await res.json();
+  renderProjects();
+  setStatus(`Loaded ${state.projects.length} project(s)`);
+}
+
+function showView(view){
+  byId('homeView').classList.toggle('hidden', view !== 'home');
+  byId('editorView').classList.toggle('hidden', view !== 'editor');
+}
+
+function renderPanels(){
+  const selectedId = state.selectedPanelId;
+  updateDeleteButtonState();
+  byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
+        <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
+        <span style="display:flex;gap:.25rem">
+          <button class="btn" data-up="${p.id}" style="min-height:28px;padding:.15rem .45rem">↑</button>
+          <button class="btn" data-down="${p.id}" style="min-height:28px;padding:.15rem .45rem">↓</button>
+          <button class="btn" data-lock="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.locked ? 'Unlock' : 'Lock'}</button>
+          <button class="btn" data-include="${p.id}" style="min-height:28px;padding:.15rem .45rem">${p.include ? 'Exclude' : 'Include'}</button>
+        </span>
+      </div>
+    </div>`).join('') || '<div class="small">No panels yet.</div>';
+
+  byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = (e) => {
+    if(e.target.closest('button')) return;
+    state.selectedPanelId = el.dataset.select;
+    renderPanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-up]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.up;
+    const idx = state.panels.findIndex(p => p.id === id);
+    if(idx <= 0) return;
+    pushUndo();
+    [state.panels[idx-1], state.panels[idx]] = [state.panels[idx], state.panels[idx-1]];
+    sortOrders();
+    state.selectedPanelId = id;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-down]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.down;
+    const idx = state.panels.findIndex(p => p.id === id);
+    if(idx < 0 || idx >= state.panels.length-1) return;
+    pushUndo();
+    [state.panels[idx], state.panels[idx+1]] = [state.panels[idx+1], state.panels[idx]];
+    sortOrders();
+    state.selectedPanelId = id;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-lock]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.lock;
+    const panel = state.panels.find(p => p.id === id);
+    if(!panel) return;
+    pushUndo();
+    panel.locked = !panel.locked;
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('panelList').querySelectorAll('[data-include]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    const id = el.dataset.include;
+    const panel = state.panels.find(p => p.id === id);
+    if(!panel) return;
+    pushUndo();
+    panel.include = !panel.include;
+    sortOrders();
+    renderPanels();
+    await savePanels();
+  });
+
+  byId('canvasWrap').querySelectorAll('.overlay').forEach(n=>n.remove());
+  const img = byId('pageImg'); if(!img.naturalWidth) return;
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imageLeft = imgRect.left - wrapRect.left;
+  const imageTop = imgRect.top - wrapRect.top;
+  const scaleX = imgRect.width / img.naturalWidth;
+  const scaleY = imgRect.height / img.naturalHeight;
+  for(const p of state.panels){
+    const d = document.createElement('div');
+    d.className = `overlay ${p.type === 'figure' ? 'figure' : ''} ${!p.include ? 'excluded' : ''} ${p.id===selectedId?'selected':''}`;
+    d.style.left = `${imageLeft + (p.x * scaleX)}px`; d.style.top = `${imageTop + (p.y * scaleY)}px`;
+    d.style.width = `${p.width * scaleX}px`; d.style.height = `${p.height * scaleY}px`;
+    const badge = document.createElement('span');
+    badge.className = 'panel-badge';
+    badge.textContent = p.order > 0 ? p.order : 'x';
+    d.appendChild(badge);
+    if(p.locked){
+      const lock = document.createElement('span');
+      lock.className = 'lock-icon';
+      lock.textContent = '🔒';
+      d.appendChild(lock);
+    }
+    d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = p.id; renderPanels(); };
+
+    d.onpointerdown = (e) => {
+      if(state.mode !== 'select') return;
+      e.stopPropagation();
+      state.selectedPanelId = p.id;
+
+      if(p.locked){
+        if(state.zoom > 100){
+          state.isPanning = true;
+          state.panStartX = e.clientX;
+          state.panStartY = e.clientY;
+          state.panOriginX = state.panX;
+          state.panOriginY = state.panY;
+          updateCanvasCursor();
+        }
+        renderPanels();
+        return;
+      }
+
+      const handle = e.target.closest('.resize-handle');
+      state.interactionDirty = false;
+      state.interactionStartX = e.clientX;
+      state.interactionStartY = e.clientY;
+      state.panelStart = {x:p.x, y:p.y, width:p.width, height:p.height};
+      if(handle){
+        state.resizePanelId = p.id;
+        state.resizeHandle = handle.dataset.handle;
+      } else {
+        state.dragPanelId = p.id;
+      }
+      renderPanels();
+    };
+
+    if(p.id === selectedId && state.mode === 'select' && !p.locked){
+      ['nw','ne','sw','se'].forEach((h) => {
+        const handle = document.createElement('span');
+        handle.className = `resize-handle ${h}`;
+        handle.dataset.handle = h;
+        d.appendChild(handle);
+      });
+    }
+    byId('canvasWrap').appendChild(d);
+  }
+}
+
+function getImageMetrics(){
+  const img = byId('pageImg');
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  return {
+    img,
+    wrapRect,
+    imgRect,
+    imageLeft: imgRect.left - wrapRect.left,
+    imageTop: imgRect.top - wrapRect.top,
+    scaleX: imgRect.width / img.naturalWidth,
+    scaleY: imgRect.height / img.naturalHeight,
+  };
+}
+
+function renderPageStrip(total){
+  const strip = byId('pageStrip'); strip.innerHTML = '';
+  const start = Math.max(1, state.page - 4), end = Math.min(total, start + 9);
+  for(let p=start; p<=end; p++){
+    const d = document.createElement('button'); d.className = 'thumb';
+    d.textContent = `Page ${p}`; d.style.borderColor = p === state.page ? 'var(--primary)' : 'var(--border)';
+    d.onclick = ()=>loadPage(p); strip.appendChild(d);
+  }
+}
+
+function panelId(){
+  const id = `p${state.page}-${String(state.panelSeq).padStart(3,'0')}`;
+  state.panelSeq += 1;
+  return id;
+}
+function sortOrders(){
+  let order = 1;
+  for(const panel of state.panels){
+    if(panel.include){
+      panel.order = order++;
+    } else {
+      panel.order = 0;
+    }
+  }
+}
+
+async function loadPage(pageNum){
+  state.page = pageNum;
+  const project = state.selectedProject;
+  byId('pageIndicator').textContent = `Page ${pageNum} / ${project.page_count}`;
+  state.panX = 0; state.panY = 0; state.isPanning = false;
+  byId('pageImg').src = baseUrl(`/api/projects/${project.id}/pages/${pageNum}/image`);
+  byId('pageImg').onload = () => applyZoom();
+
+  try{
+    const pres = await api(`/api/projects/${project.id}/pages/${pageNum}/panels`);
+    const pdata = await pres.json();
+    state.panels = pdata.panels || [];
+    state.selectedPanelId = state.panels[0]?.id || null;
+    const maxSeq = state.panels.reduce((m, panel) => {
+      const match = /^p\d+-(\d+)$/.exec(panel.id || '');
+      const seq = match ? Number(match[1]) : 0;
+      return Math.max(m, seq);
+    }, 0);
+    state.panelSeq = maxSeq + 1;
+    state.undoStack = []; state.redoStack = [];
+  } catch {
+    state.panels = []; state.selectedPanelId = null;
+    state.panelSeq = 1;
+  }
+  renderPanels();
+  renderPageStrip(project.page_count);
+}
+
+async function openEditor(projectId){
+  const p = state.projects.find(x => x.id === projectId); if(!p) return;
+  state.selectedProject = p; byId('editorTitle').textContent = p.title;
+  showView('editor'); await loadPage(Math.max(1, p.last_page_viewed || 1));
+}
+
+function getCanvasPoint(evt){
+  const c = byId('canvasWrap').getBoundingClientRect();
+  const x = (evt.clientX ?? evt.touches?.[0]?.clientX) - c.left;
+  const y = (evt.clientY ?? evt.touches?.[0]?.clientY) - c.top;
+  return {x,y};
+}
+
+function previewDrawRect(start, end){
+  byId('canvasWrap').querySelectorAll('.draw-preview').forEach(n=>n.remove());
+  const d = document.createElement('div'); d.className = 'overlay draw-preview';
+  d.style.left = `${Math.min(start.x,end.x)}px`; d.style.top = `${Math.min(start.y,end.y)}px`;
+  d.style.width = `${Math.abs(end.x-start.x)}px`; d.style.height = `${Math.abs(end.y-start.y)}px`;
+  byId('canvasWrap').appendChild(d);
+}
+
+function updateCanvasCursor(){
+  const wrap = byId('canvasWrap');
+  if(state.mode === 'draw'){ wrap.style.cursor = 'crosshair'; return; }
+  if(state.zoom > 100){ wrap.style.cursor = state.isPanning ? 'grabbing' : 'grab'; return; }
+  wrap.style.cursor = 'default';
+}
+
+function applyZoom(){
+  byId('pageImg').style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom/100})`;
+  updateCanvasCursor();
+  renderPanels();
+}
+
+byId('uploadForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  try{
+    setStatus('Uploading…');
+    const fd = new FormData();
+    fd.append('file', byId('pdf').files[0]);
+    if(byId('title').value.trim()) fd.append('title', byId('title').value.trim());
+    await api('/api/projects', {method:'POST', body:fd});
+    byId('uploadForm').reset(); await refreshProjects();
+  } catch(err){ alert(`Upload failed: ${err.message}`); setStatus('Upload failed'); }
+});
+
+byId('apiBase').value = state.apiBase;
+byId('saveApiBase').onclick = async () => { state.apiBase = byId('apiBase').value.trim().replace(/\/$/, ''); localStorage.setItem('pdf2cbz_api_base', state.apiBase); await refreshProjects(); };
+byId('newBtn').onclick = ()=>window.scrollTo({top:0,behavior:'smooth'});
+byId('homeBtn').onclick = ()=>showView('home');
+byId('backBtn').onclick = ()=>showView('home');
+
+byId('detectBtn').onclick = async () => {
+  const p = state.selectedProject; if(!p) return;
+  const res = await api(`/api/projects/${p.id}/pages/${state.page}/detect`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confidence_threshold:0.5, model:'opencv'})});
+  const task = await res.json();
+  setStatus(`Detect running (${task.task_id})…`);
+  setTimeout(async ()=>{ await loadPage(state.page); setStatus('Detect complete / refreshed'); }, 1500);
+};
+
+byId('templateBtn').onclick = async () => {
+  const p = state.selectedProject; if(!p) return;
+  const action = prompt('Template action: save or apply?', 'save');
+  if(action === 'save'){
+    const name = prompt('Template name', `Page ${state.page} template`); if(!name) return;
+    await api(`/api/projects/${p.id}/templates`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({source_page:state.page, name})});
+    alert('Template saved.');
+  } else if(action === 'apply'){
+    const templateId = prompt('Template ID (e.g., tmpl-a1b2c3)'); if(!templateId) return;
+    const from = Number(prompt('Apply from page', String(state.page)) || state.page);
+    const to = Number(prompt('Apply to page', String(state.page)) || state.page);
+    const overwrite = confirm('Overwrite edited pages?');
+    const res = await api(`/api/projects/${p.id}/templates/${templateId}/apply`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({page_from:from,page_to:to,overwrite_edited:overwrite})});
+    const out = await res.json();
+    alert(`Applied to ${out.applied_to.length} page(s), skipped ${out.skipped.length}.`);
+    if(from <= state.page && state.page <= to) await loadPage(state.page);
+  }
+};
+
+byId('exportBtn').onclick = async () => {
+  const p = state.selectedProject; if(!p) return;
+  const res = await api(`/api/projects/${p.id}/export`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jpeg_quality:85,page_from:1,page_to:p.page_count})});
+  const task = await res.json();
+  alert(`Export started: ${task.task_id}. Poll /api/tasks/${task.task_id}`);
+};
+
+byId('selectBtn').onclick = ()=>setMode('select');
+byId('drawBtn').onclick = ()=>setMode('draw');
+byId('addBtn').onclick = ()=>setMode('draw');
+byId('deleteBtn').onclick = async ()=>{
+  const id = state.selectedPanelId;
+  if(!id) return;
+  const idx = state.panels.findIndex((p)=>p.id===id);
+  if(idx < 0) return;
+  pushUndo();
+  state.panels.splice(idx, 1);
+  sortOrders();
+  state.selectedPanelId = state.panels[idx]?.id || state.panels[idx-1]?.id || null;
+  renderPanels();
+  await savePanels();
+};
+byId('splitHBtn').onclick = async ()=>{
+  const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
+  const src = state.panels.find(p=>p.id===id); if(!src) return;
+  pushUndo();
+  const mid = src.height/2;
+  const a = {...src, id:panelId(), height:Math.floor(mid), label:`${src.label || 'Panel'} A`};
+  const b = {...src, id:panelId(), y:src.y+Math.floor(mid), height:src.height-Math.floor(mid), label:`${src.label || 'Panel'} B`};
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+};
+byId('splitVBtn').onclick = async ()=>{
+  const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
+  const src = state.panels.find(p=>p.id===id); if(!src) return;
+  pushUndo();
+  const mid = src.width/2;
+  const a = {...src, id:panelId(), width:Math.floor(mid), label:`${src.label || 'Panel'} A`};
+  const b = {...src, id:panelId(), x:src.x+Math.floor(mid), width:src.width-Math.floor(mid), label:`${src.label || 'Panel'} B`};
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+};
+
+byId('undoBtn').onclick = async ()=>{
+  if(!state.undoStack.length) return;
+  state.redoStack.push(JSON.stringify(state.panels));
+  state.panels = JSON.parse(state.undoStack.pop());
+  renderPanels();
+  await savePanels();
+};
+byId('redoBtn').onclick = async ()=>{
+  if(!state.redoStack.length) return;
+  state.undoStack.push(JSON.stringify(state.panels));
+  state.panels = JSON.parse(state.redoStack.pop());
+  renderPanels();
+  await savePanels();
+};
+
+byId('zoomRange').oninput = ()=>{ state.zoom = Number(byId('zoomRange').value); applyZoom(); };
+
+
+byId('canvasWrap').addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const step = e.deltaY < 0 ? 10 : -10;
+  const next = Math.max(50, Math.min(200, state.zoom + step));
+  if(next === state.zoom) return;
+  state.zoom = next;
+  byId('zoomRange').value = String(state.zoom);
+  applyZoom();
+}, { passive: false });
+
+
+byId('canvasWrap').addEventListener('pointerdown', (e)=>{
+  if(state.mode === 'draw'){
+    state.drawStart = getCanvasPoint(e);
+    e.preventDefault();
+    return;
+  }
+  if(e.target.closest('.overlay')) return;
+  if(state.mode === 'select' && state.zoom > 100){
+    state.isPanning = true;
+    state.panStartX = e.clientX;
+    state.panStartY = e.clientY;
+    state.panOriginX = state.panX;
+    state.panOriginY = state.panY;
+    updateCanvasCursor();
+  }
+});
+byId('canvasWrap').addEventListener('pointermove', (e)=>{
+  if(state.mode === 'select' && (state.dragPanelId || state.resizePanelId)){
+    const panel = state.panels.find((x) => x.id === (state.dragPanelId || state.resizePanelId));
+    if(!panel || !state.panelStart) return;
+    const { img, scaleX, scaleY } = getImageMetrics();
+    const dx = (e.clientX - state.interactionStartX) / scaleX;
+    const dy = (e.clientY - state.interactionStartY) / scaleY;
+
+    if(!state.interactionDirty){
+      pushUndo();
+      state.interactionDirty = true;
+    }
+
+    if(state.dragPanelId){
+      panel.x = Math.max(0, Math.min(img.naturalWidth - panel.width, Math.round(state.panelStart.x + dx)));
+      panel.y = Math.max(0, Math.min(img.naturalHeight - panel.height, Math.round(state.panelStart.y + dy)));
+    } else if(state.resizePanelId){
+      const minSize = 20;
+      let nx = state.panelStart.x;
+      let ny = state.panelStart.y;
+      let nw = state.panelStart.width;
+      let nh = state.panelStart.height;
+      const h = state.resizeHandle;
+      if(h.includes('e')) nw = state.panelStart.width + dx;
+      if(h.includes('s')) nh = state.panelStart.height + dy;
+      if(h.includes('w')) { nx = state.panelStart.x + dx; nw = state.panelStart.width - dx; }
+      if(h.includes('n')) { ny = state.panelStart.y + dy; nh = state.panelStart.height - dy; }
+
+      nw = Math.max(minSize, nw);
+      nh = Math.max(minSize, nh);
+      nx = Math.max(0, nx);
+      ny = Math.max(0, ny);
+      if(nx + nw > img.naturalWidth) nw = img.naturalWidth - nx;
+      if(ny + nh > img.naturalHeight) nh = img.naturalHeight - ny;
+
+      panel.x = Math.round(nx);
+      panel.y = Math.round(ny);
+      panel.width = Math.round(nw);
+      panel.height = Math.round(nh);
+    }
+
+    renderPanels();
+    return;
+  }
+
+  if(state.mode === 'draw' && state.drawStart){
+    previewDrawRect(state.drawStart, getCanvasPoint(e));
+    return;
+  }
+  if(state.mode === 'select' && state.isPanning){
+    state.panX = state.panOriginX + (e.clientX - state.panStartX);
+    state.panY = state.panOriginY + (e.clientY - state.panStartY);
+    applyZoom();
+  }
+});
+byId('canvasWrap').addEventListener('pointerup', async (e)=>{
+  if(state.mode === 'select' && (state.dragPanelId || state.resizePanelId)){
+    state.dragPanelId = null;
+    state.resizePanelId = null;
+    state.resizeHandle = null;
+    const changed = state.interactionDirty;
+    state.panelStart = null;
+    state.interactionDirty = false;
+    if(changed) await savePanels();
+    return;
+  }
+
+  if(state.mode === 'select' && state.isPanning){
+    state.isPanning = false;
+    updateCanvasCursor();
+    return;
+  }
+  if(state.mode !== 'draw' || !state.drawStart) return;
+  const end = getCanvasPoint(e); const start = state.drawStart; state.drawStart = null;
+  const img = byId('pageImg'); if(!img.naturalWidth) return;
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imageLeft = imgRect.left - wrapRect.left;
+  const imageTop = imgRect.top - wrapRect.top;
+  const scaleX = img.naturalWidth / imgRect.width, scaleY = img.naturalHeight / imgRect.height;
+  const startX = Math.max(0, Math.min(imgRect.width, start.x - imageLeft));
+  const startY = Math.max(0, Math.min(imgRect.height, start.y - imageTop));
+  const endX = Math.max(0, Math.min(imgRect.width, end.x - imageLeft));
+  const endY = Math.max(0, Math.min(imgRect.height, end.y - imageTop));
+  const w = Math.abs(endX-startX), h = Math.abs(endY-startY);
+  byId('canvasWrap').querySelectorAll('.draw-preview').forEach(n=>n.remove());
+  if(w < 20 || h < 20) return;
+  pushUndo();
+  const panel = {
+    id: panelId(), order: state.panels.filter(p=>p.include).length+1,
+    x: Math.round(Math.min(startX,endX)*scaleX), y: Math.round(Math.min(startY,endY)*scaleY),
+    width: Math.round(w*scaleX), height: Math.round(h*scaleY),
+    type:'text', include:true, locked:false, confidence:1.0, label:`Panel ${state.panels.length+1}`
+  };
+  state.panels.push(panel); state.selectedPanelId = panel.id;
+  renderPanels(); await savePanels(); setMode('select');
+});
+
+byId('canvasWrap').addEventListener('pointerleave', ()=>{
+  if(state.isPanning){
+    state.isPanning = false;
+    updateCanvasCursor();
+  }
+  if(state.dragPanelId || state.resizePanelId){
+    state.dragPanelId = null;
+    state.resizePanelId = null;
+    state.resizeHandle = null;
+    state.panelStart = null;
+    state.interactionDirty = false;
+  }
+});
+
+refreshProjects().catch(e => setStatus(`Unable to reach API at ${state.apiBase}: ${e.message}`));
+</script>
+</body>
+</html>
