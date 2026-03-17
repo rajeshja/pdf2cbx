@@ -127,6 +127,7 @@ const state = {
   panelStart: null,
   interactionDirty: false,
   drawStart: null,
+  panelSeq: 1,
   undoStack: [], redoStack: []
 };
 
@@ -372,7 +373,11 @@ function renderPageStrip(total){
   }
 }
 
-function panelId(){ return `p${state.page}-${String(state.panels.length+1).padStart(3,'0')}`; }
+function panelId(){
+  const id = `p${state.page}-${String(state.panelSeq).padStart(3,'0')}`;
+  state.panelSeq += 1;
+  return id;
+}
 function sortOrders(){
   let order = 1;
   for(const panel of state.panels){
@@ -397,9 +402,16 @@ async function loadPage(pageNum){
     const pdata = await pres.json();
     state.panels = pdata.panels || [];
     state.selectedPanelId = state.panels[0]?.id || null;
+    const maxSeq = state.panels.reduce((m, panel) => {
+      const match = /^p\d+-(\d+)$/.exec(panel.id || '');
+      const seq = match ? Number(match[1]) : 0;
+      return Math.max(m, seq);
+    }, 0);
+    state.panelSeq = maxSeq + 1;
     state.undoStack = []; state.redoStack = [];
   } catch {
     state.panels = []; state.selectedPanelId = null;
+    state.panelSeq = 1;
   }
   renderPanels();
   renderPageStrip(project.page_count);
