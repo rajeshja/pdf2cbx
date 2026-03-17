@@ -103,6 +103,10 @@ const state = {
   panels: [], selectedPanelId: null,
   mode: 'select',
   zoom: 100,
+  panX: 0, panY: 0,
+  isPanning: false,
+  panStartX: 0, panStartY: 0,
+  panOriginX: 0, panOriginY: 0,
   drawStart: null,
   undoStack: [], redoStack: []
 };
@@ -118,6 +122,7 @@ function setMode(mode){
   state.mode = mode;
   ['selectBtn','drawBtn'].forEach(id => byId(id).classList.remove('active'));
   byId(mode === 'draw' ? 'drawBtn' : 'selectBtn').classList.add('active');
+  updateCanvasCursor();
 }
 
 function pushUndo(){
@@ -222,8 +227,9 @@ async function loadPage(pageNum){
   state.page = pageNum;
   const project = state.selectedProject;
   byId('pageIndicator').textContent = `Page ${pageNum} / ${project.page_count}`;
+  state.panX = 0; state.panY = 0; state.isPanning = false;
   byId('pageImg').src = baseUrl(`/api/projects/${project.id}/pages/${pageNum}/image`);
-  byId('pageImg').onload = () => renderPanels();
+  byId('pageImg').onload = () => applyZoom();
 
   try{
     const pres = await api(`/api/projects/${project.id}/pages/${pageNum}/panels`);
@@ -259,7 +265,18 @@ function previewDrawRect(start, end){
   byId('canvasWrap').appendChild(d);
 }
 
-function applyZoom(){ byId('pageImg').style.transform = `scale(${state.zoom/100})`; renderPanels(); }
+function updateCanvasCursor(){
+  const wrap = byId('canvasWrap');
+  if(state.mode === 'draw'){ wrap.style.cursor = 'crosshair'; return; }
+  if(state.zoom > 100){ wrap.style.cursor = state.isPanning ? 'grabbing' : 'grab'; return; }
+  wrap.style.cursor = 'default';
+}
+
+function applyZoom(){
+  byId('pageImg').style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom/100})`;
+  updateCanvasCursor();
+  renderPanels();
+}
 
 byId('uploadForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -353,15 +370,37 @@ byId('redoBtn').onclick = async ()=>{
 byId('zoomRange').oninput = ()=>{ state.zoom = Number(byId('zoomRange').value); applyZoom(); };
 
 byId('canvasWrap').addEventListener('pointerdown', (e)=>{
-  if(state.mode !== 'draw') return;
-  state.drawStart = getCanvasPoint(e);
-  e.preventDefault();
+  if(state.mode === 'draw'){
+    state.drawStart = getCanvasPoint(e);
+    e.preventDefault();
+    return;
+  }
+  if(state.mode === 'select' && state.zoom > 100){
+    state.isPanning = true;
+    state.panStartX = e.clientX;
+    state.panStartY = e.clientY;
+    state.panOriginX = state.panX;
+    state.panOriginY = state.panY;
+    updateCanvasCursor();
+  }
 });
 byId('canvasWrap').addEventListener('pointermove', (e)=>{
-  if(state.mode !== 'draw' || !state.drawStart) return;
-  previewDrawRect(state.drawStart, getCanvasPoint(e));
+  if(state.mode === 'draw' && state.drawStart){
+    previewDrawRect(state.drawStart, getCanvasPoint(e));
+    return;
+  }
+  if(state.mode === 'select' && state.isPanning){
+    state.panX = state.panOriginX + (e.clientX - state.panStartX);
+    state.panY = state.panOriginY + (e.clientY - state.panStartY);
+    applyZoom();
+  }
 });
 byId('canvasWrap').addEventListener('pointerup', async (e)=>{
+  if(state.mode === 'select' && state.isPanning){
+    state.isPanning = false;
+    updateCanvasCursor();
+    return;
+  }
   if(state.mode !== 'draw' || !state.drawStart) return;
   const end = getCanvasPoint(e); const start = state.drawStart; state.drawStart = null;
   const img = byId('pageImg'); if(!img.naturalWidth) return;
@@ -386,6 +425,13 @@ byId('canvasWrap').addEventListener('pointerup', async (e)=>{
   };
   state.panels.push(panel); state.selectedPanelId = panel.id;
   renderPanels(); await savePanels(); setMode('select');
+});
+
+byId('canvasWrap').addEventListener('pointerleave', ()=>{
+  if(state.isPanning){
+    state.isPanning = false;
+    updateCanvasCursor();
+  }
 });
 
 refreshProjects().catch(e => setStatus(`Unable to reach API at ${state.apiBase}: ${e.message}`));
