@@ -210,6 +210,10 @@ function showView(view){
 }
 
 function renderPanels(){
+  normalizePanelIds();
+  if(state.selectedPanelId && !state.panels.some((p)=>p.id===state.selectedPanelId)){
+    state.selectedPanelId = null;
+  }
   const selectedId = state.selectedPanelId;
   updateDeleteButtonState();
   byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
@@ -226,7 +230,7 @@ function renderPanels(){
 
   byId('panelList').querySelectorAll('[data-select]').forEach(el => el.onclick = (e) => {
     if(e.target.closest('button')) return;
-    state.selectedPanelId = el.dataset.select;
+    state.selectedPanelId = (state.selectedPanelId === el.dataset.select) ? null : el.dataset.select;
     renderPanels();
   });
 
@@ -302,7 +306,7 @@ function renderPanels(){
       lock.textContent = '🔒';
       d.appendChild(lock);
     }
-    d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = p.id; renderPanels(); };
+    d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = (state.selectedPanelId === p.id) ? null : p.id; renderPanels(); };
 
     d.onpointerdown = (e) => {
       if(state.mode !== 'select') return;
@@ -548,7 +552,7 @@ byId('splitHBtn').onclick = async ()=>{
   const mid = src.height/2;
   const a = {...src, id:panelId(), height:Math.floor(mid), label:`${src.label || 'Panel'} A`};
   const b = {...src, id:panelId(), y:src.y+Math.floor(mid), height:src.height-Math.floor(mid), label:`${src.label || 'Panel'} B`};
-  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); normalizePanelIds(); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
 };
 byId('splitVBtn').onclick = async ()=>{
   const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
@@ -557,7 +561,7 @@ byId('splitVBtn').onclick = async ()=>{
   const mid = src.width/2;
   const a = {...src, id:panelId(), width:Math.floor(mid), label:`${src.label || 'Panel'} A`};
   const b = {...src, id:panelId(), x:src.x+Math.floor(mid), width:src.width-Math.floor(mid), label:`${src.label || 'Panel'} B`};
-  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
+  state.panels = state.panels.filter(p=>p.id!==id).concat([a,b]); normalizePanelIds(); sortOrders(); state.selectedPanelId = a.id; renderPanels(); await savePanels();
 };
 
 byId('undoBtn').onclick = async ()=>{
@@ -576,6 +580,17 @@ byId('redoBtn').onclick = async ()=>{
 };
 
 byId('zoomRange').oninput = ()=>{ state.zoom = Number(byId('zoomRange').value); applyZoom(); };
+
+
+byId('canvasWrap').addEventListener('click', (e)=>{
+  if(state.mode !== 'select') return;
+  if(e.target.closest('.overlay')) return;
+  if(state.selectedPanelId !== null){
+    state.selectedPanelId = null;
+    renderPanels();
+  }
+});
+
 
 
 byId('canvasWrap').addEventListener('wheel', (e)=>{
