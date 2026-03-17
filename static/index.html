@@ -288,7 +288,7 @@ function renderPanels(){
     const isSelected = selectedIds.has(p.id);
     const isPrimary = state.selectedPanelId === p.id;
     const cardClass = `project-card ${isSelected ? 'selected multi-selected' : ''} ${isPrimary ? 'primary-selected' : ''}`.trim();
-    return `<div class="${cardClass}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">`
+    return `<div class="${cardClass}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
         <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
         <span style="display:flex;gap:.25rem">
