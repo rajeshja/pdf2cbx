@@ -378,6 +378,31 @@ function panelId(){
   state.panelSeq += 1;
   return id;
 }
+
+
+function normalizePanelIds(){
+  const seen = new Set();
+  let maxSeq = 0;
+  for(const panel of state.panels){
+    const match = /^p\d+-(\d+)$/.exec(panel.id || '');
+    const seq = match ? Number(match[1]) : 0;
+    maxSeq = Math.max(maxSeq, seq);
+  }
+  let nextSeq = maxSeq + 1;
+  let changed = false;
+  for(const panel of state.panels){
+    const id = panel.id || '';
+    if(!id || seen.has(id)){
+      panel.id = `p${state.page}-${String(nextSeq).padStart(3,'0')}`;
+      nextSeq += 1;
+      changed = true;
+    }
+    seen.add(panel.id);
+  }
+  state.panelSeq = nextSeq;
+  return changed;
+}
+
 function sortOrders(){
   let order = 1;
   for(const panel of state.panels){
@@ -401,14 +426,12 @@ async function loadPage(pageNum){
     const pres = await api(`/api/projects/${project.id}/pages/${pageNum}/panels`);
     const pdata = await pres.json();
     state.panels = pdata.panels || [];
+    const idsRepaired = normalizePanelIds();
     state.selectedPanelId = state.panels[0]?.id || null;
-    const maxSeq = state.panels.reduce((m, panel) => {
-      const match = /^p\d+-(\d+)$/.exec(panel.id || '');
-      const seq = match ? Number(match[1]) : 0;
-      return Math.max(m, seq);
-    }, 0);
-    state.panelSeq = maxSeq + 1;
     state.undoStack = []; state.redoStack = [];
+    if(idsRepaired){
+      await savePanels();
+    }
   } catch {
     state.panels = []; state.selectedPanelId = null;
     state.panelSeq = 1;
