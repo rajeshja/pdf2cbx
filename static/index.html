@@ -93,6 +93,7 @@
             <button class="btn active" id="selectBtn">Select</button>
             <button class="btn" id="drawBtn">Draw</button>
             <button class="btn" id="addBtn">+ Add Panel</button>
+            <button class="btn destructive" id="deleteBtn" disabled>Delete Selected Panel</button>
             <button class="btn" id="splitHBtn">Split Horizontally</button>
             <button class="btn" id="splitVBtn">Split Vertically</button>
             <button class="btn" id="undoBtn">Undo</button>
@@ -149,6 +150,17 @@ function pushUndo(){
   state.redoStack = [];
 }
 
+
+function updateDeleteButtonState(){
+  const btn = byId('deleteBtn');
+  if(!btn) return;
+  const hasSelection = !!state.selectedPanelId && state.panels.some((p)=>p.id===state.selectedPanelId);
+  btn.disabled = !hasSelection;
+  btn.style.opacity = hasSelection ? '1' : '0.5';
+  btn.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+}
+
+
 async function savePanels(){
   const project = state.selectedProject;
   if(!project) return;
@@ -198,6 +210,7 @@ function showView(view){
 
 function renderPanels(){
   const selectedId = state.selectedPanelId;
+  updateDeleteButtonState();
   byId('panelList').innerHTML = state.panels.map((p,i)=>`<div class="project-card ${p.id===selectedId?'selected':''}" data-select="${p.id}" style="padding:.4rem;cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
         <span>${p.order || i+1}. ${p.label || p.type} ${p.include ? '' : '(excluded)'} ${p.locked ? '🔒' : ''}</span>
@@ -481,6 +494,18 @@ byId('exportBtn').onclick = async () => {
 byId('selectBtn').onclick = ()=>setMode('select');
 byId('drawBtn').onclick = ()=>setMode('draw');
 byId('addBtn').onclick = ()=>setMode('draw');
+byId('deleteBtn').onclick = async ()=>{
+  const id = state.selectedPanelId;
+  if(!id) return;
+  const idx = state.panels.findIndex((p)=>p.id===id);
+  if(idx < 0) return;
+  pushUndo();
+  state.panels.splice(idx, 1);
+  sortOrders();
+  state.selectedPanelId = state.panels[idx]?.id || state.panels[idx-1]?.id || null;
+  renderPanels();
+  await savePanels();
+};
 byId('splitHBtn').onclick = async ()=>{
   const id = state.selectedPanelId; if(!id) return alert('Select a panel first.');
   const src = state.panels.find(p=>p.id===id); if(!src) return;
