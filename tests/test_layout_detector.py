@@ -63,3 +63,36 @@ def test_top_large_segment_not_excluded_and_is_padded(tmp_path: Path):
     # detector should pad beyond the raw rectangle bounds
     assert top_panel.y <= 35
     assert top_panel.height >= 390
+
+
+def _build_order_and_footer_page(path: Path) -> None:
+    img = Image.new("L", (1000, 1400), color=255)
+    draw = ImageDraw.Draw(img)
+
+    # Top row blocks: right starts slightly higher than left
+    draw.rectangle((120, 80, 420, 260), fill=30)
+    draw.rectangle((560, 60, 900, 260), fill=30)
+    # Mid content
+    draw.rectangle((560, 320, 900, 640), fill=30)
+    # Footer strip near bottom that should be excluded
+    draw.rectangle((80, 1320, 920, 1370), fill=30)
+
+    img.save(path)
+
+
+def test_ordering_prefers_left_to_right_on_same_row_and_excludes_footer(tmp_path: Path):
+    image_path = tmp_path / "order-footer.png"
+    _build_order_and_footer_page(image_path)
+
+    detector = LayoutDetector()
+    page = detector.detect(page_num=1, image_path=image_path)
+
+    included = [p for p in page.panels if p.include]
+    assert included
+
+    first = min(included, key=lambda p: p.order)
+    assert first.x < 500
+
+    footer_like = [p for p in page.panels if p.y > 1250]
+    assert footer_like
+    assert all(not p.include for p in footer_like)

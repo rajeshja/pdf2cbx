@@ -56,14 +56,16 @@ class LayoutDetector:
             width, height = gray.size
             pix = gray.load()
 
-            col_threshold = 0.02
-            col_min_size = max(80, width // 12)
+            col_threshold = 0.015
+            col_min_size = max(72, width // 14)
             col_merge_gap = max(16, width // 100)
             row_threshold_floor = 0.006
             row_min_size = max(12, height // 140)
             row_merge_gap = max(28, height // 55)
-            box_pad_x = max(6, width // 220)
-            box_pad_y = max(8, height // 220)
+            box_pad_x = max(10, width // 120)
+            box_pad_y = max(10, height // 160)
+            top_extra_left_pad = max(20, width // 30)
+            sort_bucket = max(24, height // 60)
 
             col_dark = []
             for x in range(width):
@@ -89,7 +91,7 @@ class LayoutDetector:
                 confidence_threshold,
             )
             logger.debug(
-                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s box_pad=(%s,%s)",
+                "layout.detect.thresholds page=%s col_threshold=%.3f col_min=%s col_gap=%s row_threshold=%.3f row_min=%s row_gap=%s box_pad=(%s,%s) top_extra_left=%s sort_bucket=%s",
                 page_num,
                 col_threshold,
                 col_min_size,
@@ -99,6 +101,8 @@ class LayoutDetector:
                 row_merge_gap,
                 box_pad_x,
                 box_pad_y,
+                top_extra_left_pad,
+                sort_bucket,
             )
             logger.debug("layout.detect.columns page=%s columns=%s", page_num, columns)
 
@@ -139,7 +143,8 @@ class LayoutDetector:
                 )
 
                 for y1, y2 in segments:
-                    px1 = max(0, x1 - box_pad_x)
+                    dynamic_left_pad = box_pad_x + (top_extra_left_pad if y1 < int(height * 0.18) else 0)
+                    px1 = max(0, x1 - dynamic_left_pad)
                     px2 = min(width, x2 + box_pad_x)
                     py1 = max(0, y1 - box_pad_y)
                     py2 = min(height, y2 + box_pad_y)
@@ -149,10 +154,10 @@ class LayoutDetector:
                         logger.debug("layout.detect.skip_segment page=%s col=%s box=(%s,%s,%s,%s)", page_num, col_idx, px1, py1, w, h)
                         continue
 
-                    is_top_strip = py1 < int(height * 0.08) and h < int(height * 0.06)
-                    is_bottom_strip = py2 > int(height * 0.94) and h < int(height * 0.06)
+                    is_top_strip = py2 < int(height * 0.11) or (py1 < int(height * 0.08) and h < int(height * 0.08))
+                    is_bottom_strip = py1 > int(height * 0.90) or (py2 > int(height * 0.94) and h < int(height * 0.10))
                     ptype = "header" if is_top_strip else "footer" if is_bottom_strip else "text"
-                    include = True
+                    include = ptype == "text"
 
                     panels.append(
                         Panel(
@@ -170,11 +175,15 @@ class LayoutDetector:
                     )
                     idx += 1
 
-            panels.sort(key=lambda p: (p.y, p.x))
-            for order, panel in enumerate(panels, start=1):
+            panels.sort(key=lambda p: (p.y // sort_bucket, p.x, p.y))
+            include_order = 1
+            for panel in panels:
                 if panel.include:
-                    panel.order = order
-                    panel.label = f"Panel {order}"
+                    panel.order = include_order
+                    panel.label = f"Panel {include_order}"
+                    include_order += 1
+                else:
+                    panel.order = 0
 
             if not panels:
                 logger.warning("layout.detect.no_panels page=%s fallback=full_page", page_num)
