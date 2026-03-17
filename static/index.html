@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF2CBZ</title>
+  <style>body{font-family:Arial,sans-serif;max-width:800px;margin:2rem auto;padding:1rem}button,input{font-size:1rem}</style>
+</head>
+<body>
+  <h1>PDF2CBZ</h1>
+  <p>Upload scanned PDFs and export panelized CBZ files.</p>
+  <form id="uploadForm">
+    <input id="pdf" type="file" accept="application/pdf" required />
+    <input id="title" placeholder="Optional title" />
+    <button type="submit">Create Project</button>
+  </form>
+  <h2>Projects</h2>
+  <ul id="projects"></ul>
+<script>
+async function refresh(){
+  const res = await fetch('/api/projects');
+  const data = await res.json();
+  projects.innerHTML = data.map(p=>`<li><b>${p.title}</b> (${p.page_count} pages)</li>`).join('');
+}
+uploadForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const fd = new FormData();
+  fd.append('file', pdf.files[0]);
+  if(title.value) fd.append('title', title.value);
+  const res = await fetch('/api/projects', {method:'POST', body:fd});
+  if(!res.ok){ alert('Upload failed'); return; }
+  await refresh();
+  uploadForm.reset();
+});
+refresh();
+</script>
+</body>
+</html>
