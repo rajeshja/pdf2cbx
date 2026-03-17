@@ -500,6 +500,18 @@ byId('redoBtn').onclick = async ()=>{
 
 byId('zoomRange').oninput = ()=>{ state.zoom = Number(byId('zoomRange').value); applyZoom(); };
 
+
+byId('canvasWrap').addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const step = e.deltaY < 0 ? 10 : -10;
+  const next = Math.max(50, Math.min(200, state.zoom + step));
+  if(next === state.zoom) return;
+  state.zoom = next;
+  byId('zoomRange').value = String(state.zoom);
+  applyZoom();
+}, { passive: false });
+
+
 byId('canvasWrap').addEventListener('pointerdown', (e)=>{
   if(state.mode === 'draw'){
     state.drawStart = getCanvasPoint(e);
