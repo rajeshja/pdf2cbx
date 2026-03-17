@@ -27,12 +27,17 @@
     .pane{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:.6rem;overflow:auto}
     .canvasWrap{position:relative;background:#111;border-radius:.5rem;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:520px;touch-action:none}
     #pageImg{max-width:100%;max-height:100%;display:block;transform-origin:center center}
-    .overlay{position:absolute;border:2px solid var(--primary);background:rgba(37,99,235,.08);font-size:12px;border-radius:6px;cursor:pointer}
+    .overlay{position:absolute;border:2px solid var(--primary);background:rgba(37,99,235,.08);font-size:12px;border-radius:6px;cursor:move}
     .panel-badge{position:absolute;top:4px;left:4px;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#0F172A;color:#fff;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.4)}
     .overlay.figure{border-color:var(--figure);background:rgba(124,58,237,.08)}
     .overlay.excluded{border-color:var(--excluded);border-style:dashed;background:rgba(148,163,184,.05)}
     .overlay.selected{border-width:3px;box-shadow:0 0 0 2px rgba(255,255,255,.35) inset}
     .overlay.draw-preview{pointer-events:none;border-style:dashed}
+    .resize-handle{position:absolute;width:14px;height:14px;background:#fff;border:2px solid var(--primary);border-radius:50%;z-index:2}
+    .resize-handle.nw{left:-8px;top:-8px;cursor:nwse-resize}
+    .resize-handle.ne{right:-8px;top:-8px;cursor:nesw-resize}
+    .resize-handle.sw{left:-8px;bottom:-8px;cursor:nesw-resize}
+    .resize-handle.se{right:-8px;bottom:-8px;cursor:nwse-resize}
     .toolbar{margin-top:.5rem;display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
     .page-strip{margin-top:.5rem;border:1px solid var(--border);border-radius:.75rem;padding:.5rem;display:flex;gap:.5rem;overflow:auto;background:var(--surface)}
     .thumb{min-width:70px;height:92px;border:1px solid var(--border);background:#fff;border-radius:.4rem;display:grid;place-items:center;font-size:12px;color:var(--text-secondary)}
@@ -107,6 +112,13 @@ const state = {
   isPanning: false,
   panStartX: 0, panStartY: 0,
   panOriginX: 0, panOriginY: 0,
+  dragPanelId: null,
+  resizePanelId: null,
+  resizeHandle: null,
+  interactionStartX: 0,
+  interactionStartY: 0,
+  panelStart: null,
+  interactionDirty: false,
   drawStart: null,
   undoStack: [], redoStack: []
 };
@@ -203,8 +215,50 @@ function renderPanels(){
     badge.textContent = p.order > 0 ? p.order : 'x';
     d.appendChild(badge);
     d.onclick = (e) => { e.stopPropagation(); state.selectedPanelId = p.id; renderPanels(); };
+
+    d.onpointerdown = (e) => {
+      if(state.mode !== 'select') return;
+      e.stopPropagation();
+      state.selectedPanelId = p.id;
+      const handle = e.target.closest('.resize-handle');
+      state.interactionDirty = false;
+      state.interactionStartX = e.clientX;
+      state.interactionStartY = e.clientY;
+      state.panelStart = {x:p.x, y:p.y, width:p.width, height:p.height};
+      if(handle){
+        state.resizePanelId = p.id;
+        state.resizeHandle = handle.dataset.handle;
+      } else {
+        state.dragPanelId = p.id;
+      }
+      renderPanels();
+    };
+
+    if(p.id === selectedId && state.mode === 'select'){
+      ['nw','ne','sw','se'].forEach((h) => {
+        const handle = document.createElement('span');
+        handle.className = `resize-handle ${h}`;
+        handle.dataset.handle = h;
+        d.appendChild(handle);
+      });
+    }
     byId('canvasWrap').appendChild(d);
   }
+}
+
+function getImageMetrics(){
+  const img = byId('pageImg');
+  const wrapRect = byId('canvasWrap').getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  return {
+    img,
+    wrapRect,
+    imgRect,
+    imageLeft: imgRect.left - wrapRect.left,
+    imageTop: imgRect.top - wrapRect.top,
+    scaleX: imgRect.width / img.naturalWidth,
+    scaleY: imgRect.height / img.naturalHeight,
+  };
 }
 
 function renderPageStrip(total){
@@ -375,6 +429,7 @@ byId('canvasWrap').addEventListener('pointerdown', (e)=>{
     e.preventDefault();
     return;
   }
+  if(e.target.closest('.overlay')) return;
   if(state.mode === 'select' && state.zoom > 100){
     state.isPanning = true;
     state.panStartX = e.clientX;
@@ -385,6 +440,50 @@ byId('canvasWrap').addEventListener('pointerdown', (e)=>{
   }
 });
 byId('canvasWrap').addEventListener('pointermove', (e)=>{
+  if(state.mode === 'select' && (state.dragPanelId || state.resizePanelId)){
+    const panel = state.panels.find((x) => x.id === (state.dragPanelId || state.resizePanelId));
+    if(!panel || !state.panelStart) return;
+    const { img, scaleX, scaleY } = getImageMetrics();
+    const dx = (e.clientX - state.interactionStartX) / scaleX;
+    const dy = (e.clientY - state.interactionStartY) / scaleY;
+
+    if(!state.interactionDirty){
+      pushUndo();
+      state.interactionDirty = true;
+    }
+
+    if(state.dragPanelId){
+      panel.x = Math.max(0, Math.min(img.naturalWidth - panel.width, Math.round(state.panelStart.x + dx)));
+      panel.y = Math.max(0, Math.min(img.naturalHeight - panel.height, Math.round(state.panelStart.y + dy)));
+    } else if(state.resizePanelId){
+      const minSize = 20;
+      let nx = state.panelStart.x;
+      let ny = state.panelStart.y;
+      let nw = state.panelStart.width;
+      let nh = state.panelStart.height;
+      const h = state.resizeHandle;
+      if(h.includes('e')) nw = state.panelStart.width + dx;
+      if(h.includes('s')) nh = state.panelStart.height + dy;
+      if(h.includes('w')) { nx = state.panelStart.x + dx; nw = state.panelStart.width - dx; }
+      if(h.includes('n')) { ny = state.panelStart.y + dy; nh = state.panelStart.height - dy; }
+
+      nw = Math.max(minSize, nw);
+      nh = Math.max(minSize, nh);
+      nx = Math.max(0, nx);
+      ny = Math.max(0, ny);
+      if(nx + nw > img.naturalWidth) nw = img.naturalWidth - nx;
+      if(ny + nh > img.naturalHeight) nh = img.naturalHeight - ny;
+
+      panel.x = Math.round(nx);
+      panel.y = Math.round(ny);
+      panel.width = Math.round(nw);
+      panel.height = Math.round(nh);
+    }
+
+    renderPanels();
+    return;
+  }
+
   if(state.mode === 'draw' && state.drawStart){
     previewDrawRect(state.drawStart, getCanvasPoint(e));
     return;
@@ -396,6 +495,17 @@ byId('canvasWrap').addEventListener('pointermove', (e)=>{
   }
 });
 byId('canvasWrap').addEventListener('pointerup', async (e)=>{
+  if(state.mode === 'select' && (state.dragPanelId || state.resizePanelId)){
+    state.dragPanelId = null;
+    state.resizePanelId = null;
+    state.resizeHandle = null;
+    const changed = state.interactionDirty;
+    state.panelStart = null;
+    state.interactionDirty = false;
+    if(changed) await savePanels();
+    return;
+  }
+
   if(state.mode === 'select' && state.isPanning){
     state.isPanning = false;
     updateCanvasCursor();
@@ -431,6 +541,13 @@ byId('canvasWrap').addEventListener('pointerleave', ()=>{
   if(state.isPanning){
     state.isPanning = false;
     updateCanvasCursor();
+  }
+  if(state.dragPanelId || state.resizePanelId){
+    state.dragPanelId = null;
+    state.resizePanelId = null;
+    state.resizeHandle = null;
+    state.panelStart = null;
+    state.interactionDirty = false;
   }
 });
 
