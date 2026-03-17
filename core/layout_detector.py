@@ -6,58 +6,73 @@ from models.panel import PagePanels, Panel
 
 
 class LayoutDetector:
+    @staticmethod
+    def _find_dense_runs(values: list[float], threshold: float, min_size: int) -> list[tuple[int, int]]:
+        runs: list[tuple[int, int]] = []
+        start = None
+        for idx, value in enumerate(values):
+            if value > threshold and start is None:
+                start = idx
+            elif value <= threshold and start is not None:
+                if idx - start >= min_size:
+                    runs.append((start, idx))
+                start = None
+        if start is not None and len(values) - start >= min_size:
+            runs.append((start, len(values)))
+        return runs
+
+    @staticmethod
+    def _merge_nearby_runs(runs: list[tuple[int, int]], gap: int) -> list[tuple[int, int]]:
+        if not runs:
+            return []
+        merged = [runs[0]]
+        for start, end in runs[1:]:
+            prev_start, prev_end = merged[-1]
+            if start - prev_end <= gap:
+                merged[-1] = (prev_start, end)
+            else:
+                merged.append((start, end))
+        return merged
+
     def detect(self, page_num: int, image_path: Path, confidence_threshold: float = 0.5, model: str = "opencv") -> PagePanels:
         with Image.open(image_path) as img:
             gray = img.convert("L")
             width, height = gray.size
             pix = gray.load()
 
-            row_dark = []
-            for y in range(height):
+            col_dark = []
+            for x in range(width):
                 dark = 0
-                for x in range(width):
+                for y in range(height):
                     if pix[x, y] < 220:
                         dark += 1
-                row_dark.append(dark / width)
+                col_dark.append(dark / height)
 
-            segments: list[tuple[int, int]] = []
-            start = None
-            for y, ratio in enumerate(row_dark):
-                if ratio > 0.02 and start is None:
-                    start = y
-                elif ratio <= 0.02 and start is not None:
-                    if y - start > 30:
-                        segments.append((start, y))
-                    start = None
-            if start is not None:
-                segments.append((start, height))
+            columns = self._find_dense_runs(col_dark, threshold=0.02, min_size=max(80, width // 12))
+            if not columns:
+                columns = [(0, width)]
+            columns = self._merge_nearby_runs(columns, gap=max(16, width // 100))
 
             panels: list[Panel] = []
             idx = 1
-            for y1, y2 in segments:
-                col_density = []
-                for x in range(width):
+            for x1, x2 in columns:
+                col_width = x2 - x1
+                if col_width < 50:
+                    continue
+
+                row_dark = []
+                for y in range(height):
                     dark = 0
-                    for y in range(y1, y2):
+                    for x in range(x1, x2):
                         if pix[x, y] < 220:
                             dark += 1
-                    col_density.append(dark / max(1, (y2 - y1)))
+                    row_dark.append(dark / col_width)
 
-                valleys = [x for x, v in enumerate(col_density) if v < 0.01]
-                split = None
-                if valleys:
-                    mid = width // 2
-                    nearest = min(valleys, key=lambda v: abs(v - mid))
-                    if abs(nearest - mid) < width * 0.2:
-                        split = nearest
+                segments = self._find_dense_runs(row_dark, threshold=0.02, min_size=max(24, height // 80))
+                segments = self._merge_nearby_runs(segments, gap=max(16, height // 120))
 
-                if split:
-                    candidates = [(0, split), (split, width)]
-                else:
-                    candidates = [(0, width)]
-
-                for x1, x2 in candidates:
-                    w = x2 - x1
+                for y1, y2 in segments:
+                    w = col_width
                     h = y2 - y1
                     if w < 50 or h < 50:
                         continue
@@ -78,6 +93,12 @@ class LayoutDetector:
                         )
                     )
                     idx += 1
+
+            panels.sort(key=lambda p: (p.y, p.x))
+            for order, panel in enumerate(panels, start=1):
+                if panel.include:
+                    panel.order = order
+                    panel.label = f"Panel {order}"
 
             if not panels:
                 panels = [
